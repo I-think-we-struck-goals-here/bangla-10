@@ -9,6 +9,12 @@ Minimal, mobile-first Bangla language trainer focused on daily practical convers
 - Timed quick-fire multiple-choice round
 - Progress dashboard with streaks and category tracking
 - Phrase bank with search and category drill-down
+- Salah module with:
+  - Recitation progress list
+  - Chunked learning pages with audio, shadow mode, and self-rating
+  - Prayer map reference
+  - Wudu step-by-step guide
+  - Common Islamic phrase reference
 - Local backup export/import for progress data
 - Beautiful warm minimal UI inspired by your mockup
 

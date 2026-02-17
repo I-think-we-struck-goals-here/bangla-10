@@ -2,6 +2,7 @@ const STORAGE_KEY = "bangla10-srs";
 const STORAGE_VERSION = 1;
 const INTERVAL_DAYS = { 1: 1, 2: 2, 3: 5, 4: 14, 5: 30 };
 const MAX_QUICKFIRE_TIME = 8;
+const PRAYER_CHUNK_STATUSES = ["new", "practicing", "memorised"];
 
 const appEl = document.getElementById("app");
 const clockEl = document.getElementById("clockLabel");
@@ -10,7 +11,10 @@ const appState = {
   data: {
     phrases: [],
     drills: [],
-    categories: []
+    categories: [],
+    prayerRecitations: [],
+    wuduSteps: [],
+    commonIslamicPhrases: []
   },
   store: null,
   session: null,
@@ -19,7 +23,14 @@ const appState = {
     phraseSearch: "",
     categorySearch: "",
     drillSteps: {},
-    selectedQuickView: null
+    selectedQuickView: null,
+    prayerExpandedChunkId: null,
+    prayerShadow: null,
+    prayerShadowTimerId: null,
+    prayerFlow: null,
+    prayerFlowAudio: null,
+    prayerFlowAudioResolver: null,
+    prayerTest: null
   }
 };
 
@@ -121,6 +132,11 @@ function loadStore() {
       dailyGoal: 10,
       newPhrasesPerSession: 3,
       maxReviewsPerSession: 12
+    },
+    prayer: {
+      recitations: {},
+      lastPracticeDate: null,
+      totalPracticeSessions: 0
     }
   };
 
@@ -145,6 +161,13 @@ function loadStore() {
       },
       phrases: {
         ...(parsed.phrases || {})
+      },
+      prayer: {
+        ...fallback.prayer,
+        ...(parsed.prayer || {}),
+        recitations: {
+          ...((parsed.prayer && parsed.prayer.recitations) || {})
+        }
       }
     };
   } catch {
@@ -162,6 +185,90 @@ function getPhraseById(id) {
 
 function getDrillById(id) {
   return appState.data.drills.find((drill) => drill.id === id) || null;
+}
+
+function getPrayerRecitationById(id) {
+  return appState.data.prayerRecitations.find((recitation) => recitation.id === id) || null;
+}
+
+function getPrayerAudioUrl(chunk) {
+  if (!chunk) return "";
+  const direct = chunk.audioUrl || chunk.audioFile || "";
+  if (!direct) return "";
+  if (direct.startsWith("http://") || direct.startsWith("https://")) return direct;
+  if (direct.startsWith("./")) return direct;
+  return `./${direct}`;
+}
+
+function ensurePrayerRecitationState(recitationId, chunkIds = []) {
+  if (!appState.store.prayer) {
+    appState.store.prayer = {
+      recitations: {},
+      lastPracticeDate: null,
+      totalPracticeSessions: 0
+    };
+  }
+  if (!appState.store.prayer.recitations[recitationId]) {
+    appState.store.prayer.recitations[recitationId] = {
+      chunks: {},
+      fullRecitationStatus: "new",
+      lastFullAttempt: null
+    };
+  }
+
+  const recitationState = appState.store.prayer.recitations[recitationId];
+  for (const chunkId of chunkIds) {
+    if (!recitationState.chunks[chunkId]) {
+      recitationState.chunks[chunkId] = {
+        status: "new",
+        lastPracticed: null
+      };
+    }
+  }
+  return recitationState;
+}
+
+function prayerRecitationProgress(recitation) {
+  const chunkIds = recitation.chunks.map((chunk) => chunk.id);
+  const state = ensurePrayerRecitationState(recitation.id, chunkIds);
+  let memorised = 0;
+  let practicing = 0;
+  for (const chunkId of chunkIds) {
+    const status = state.chunks[chunkId]?.status || "new";
+    if (status === "memorised") memorised += 1;
+    else if (status === "practicing") practicing += 1;
+  }
+  const total = chunkIds.length;
+  const status = memorised === total ? "memorised" : memorised > 0 || practicing > 0 ? "practicing" : "new";
+  return {
+    status,
+    total,
+    memorised,
+    practicing
+  };
+}
+
+function overallPrayerProgress() {
+  const rows = appState.data.prayerRecitations.map((recitation) => {
+    return {
+      recitation,
+      progress: prayerRecitationProgress(recitation)
+    };
+  });
+  const memorisedCount = rows.filter((row) => row.progress.status === "memorised").length;
+  const practicingCount = rows.filter((row) => row.progress.status === "practicing").length;
+  return {
+    rows,
+    memorisedCount,
+    practicingCount,
+    total: rows.length
+  };
+}
+
+function nextPrayerStatus(current) {
+  const index = PRAYER_CHUNK_STATUSES.indexOf(current);
+  if (index < 0) return "new";
+  return PRAYER_CHUNK_STATUSES[(index + 1) % PRAYER_CHUNK_STATUSES.length];
 }
 
 function ensurePhraseState(phraseId, persist = false) {
@@ -709,6 +816,14 @@ function getRoute() {
     return { page: "drills" };
   }
 
+  if (parts[0] === "salah") {
+    if (parts[1] === "learn" && parts[2]) return { page: "salah-learn", recitationId: parts[2] };
+    if (parts[1] === "map") return { page: "salah-map" };
+    if (parts[1] === "wudu") return { page: "salah-wudu" };
+    if (parts[1] === "phrases") return { page: "salah-phrases" };
+    return { page: "salah-home" };
+  }
+
   return { page: "home" };
 }
 
@@ -721,7 +836,9 @@ function setActiveNav(routePage) {
         ? "#/phrases"
         : routePage.startsWith("drill") || routePage === "drills"
           ? "#/drills"
-          : "#/progress";
+          : routePage.startsWith("salah")
+            ? "#/salah"
+            : "#/progress";
 
   navItems.forEach((item) => {
     const active = item.dataset.route === navPage;
@@ -1589,6 +1706,13 @@ function renderProgress() {
         },
         phrases: {
           ...(parsed.phrases || {})
+        },
+        prayer: {
+          ...loadStore().prayer,
+          ...(parsed.prayer || {}),
+          recitations: {
+            ...((parsed.prayer && parsed.prayer.recitations) || {})
+          }
         }
       };
       saveStore();
@@ -1600,9 +1724,798 @@ function renderProgress() {
   });
 }
 
+function clearPrayerShadowTimer() {
+  if (!appState.ui.prayerShadowTimerId) return;
+  clearInterval(appState.ui.prayerShadowTimerId);
+  appState.ui.prayerShadowTimerId = null;
+}
+
+function clearPrayerFlowAudio() {
+  if (appState.ui.prayerFlowAudio) {
+    appState.ui.prayerFlowAudio.pause();
+    appState.ui.prayerFlowAudio.currentTime = 0;
+    appState.ui.prayerFlowAudio = null;
+  }
+  if (appState.ui.prayerFlowAudioResolver) {
+    const resolver = appState.ui.prayerFlowAudioResolver;
+    appState.ui.prayerFlowAudioResolver = null;
+    resolver(false);
+  }
+}
+
+function touchPrayerActivity() {
+  if (!appState.store.prayer) {
+    appState.store.prayer = {
+      recitations: {},
+      lastPracticeDate: null,
+      totalPracticeSessions: 0
+    };
+  }
+  const today = todayISO();
+  if (appState.store.prayer.lastPracticeDate !== today) {
+    appState.store.prayer.totalPracticeSessions += 1;
+  }
+  appState.store.prayer.lastPracticeDate = today;
+}
+
+function recalcPrayerRecitationStatus(recitation) {
+  const state = ensurePrayerRecitationState(
+    recitation.id,
+    recitation.chunks.map((chunk) => chunk.id)
+  );
+  const statuses = recitation.chunks.map((chunk) => state.chunks[chunk.id]?.status || "new");
+  if (statuses.every((status) => status === "memorised")) {
+    state.fullRecitationStatus = "memorised";
+  } else if (statuses.some((status) => status === "practicing" || status === "memorised")) {
+    state.fullRecitationStatus = "practicing";
+  } else {
+    state.fullRecitationStatus = "new";
+  }
+  return state.fullRecitationStatus;
+}
+
+function setPrayerRecitationFullStatus(recitationId, status) {
+  const recitation = getPrayerRecitationById(recitationId);
+  if (!recitation) return;
+  const state = ensurePrayerRecitationState(
+    recitation.id,
+    recitation.chunks.map((chunk) => chunk.id)
+  );
+  state.fullRecitationStatus = status;
+  state.lastFullAttempt = todayISO();
+
+  if (status === "memorised") {
+    for (const chunk of recitation.chunks) {
+      state.chunks[chunk.id] = {
+        status: "memorised",
+        lastPracticed: todayISO()
+      };
+    }
+  } else if (status === "new") {
+    for (const chunk of recitation.chunks) {
+      state.chunks[chunk.id] = {
+        status: "new",
+        lastPracticed: state.chunks[chunk.id]?.lastPracticed || null
+      };
+    }
+  } else if (status === "practicing") {
+    const hasPractice = recitation.chunks.some((chunk) => {
+      const chunkStatus = state.chunks[chunk.id]?.status || "new";
+      return chunkStatus === "practicing" || chunkStatus === "memorised";
+    });
+    if (!hasPractice && recitation.chunks[0]) {
+      state.chunks[recitation.chunks[0].id] = {
+        status: "practicing",
+        lastPracticed: todayISO()
+      };
+    }
+  }
+
+  touchPrayerActivity();
+  saveStore();
+}
+
+function updatePrayerChunkStatus(recitationId, chunkId, status) {
+  const recitation = getPrayerRecitationById(recitationId);
+  if (!recitation) return;
+  const recitationState = ensurePrayerRecitationState(
+    recitationId,
+    recitation.chunks.map((chunk) => chunk.id)
+  );
+  recitationState.chunks[chunkId] = {
+    status,
+    lastPracticed: todayISO()
+  };
+  recalcPrayerRecitationStatus(recitation);
+  touchPrayerActivity();
+  saveStore();
+}
+
+function cyclePrayerChunkStatus(recitationId, chunkId) {
+  const recitation = getPrayerRecitationById(recitationId);
+  if (!recitation) return;
+  const recitationState = ensurePrayerRecitationState(
+    recitationId,
+    recitation.chunks.map((chunk) => chunk.id)
+  );
+  const current = recitationState.chunks[chunkId]?.status || "new";
+  updatePrayerChunkStatus(recitationId, chunkId, nextPrayerStatus(current));
+}
+
+function trackPrayerChunkPracticed(recitationId, chunkId, save = true) {
+  const recitation = getPrayerRecitationById(recitationId);
+  if (!recitation) return;
+  const recitationState = ensurePrayerRecitationState(
+    recitationId,
+    recitation.chunks.map((chunk) => chunk.id)
+  );
+  const existing = recitationState.chunks[chunkId] || { status: "new", lastPracticed: null };
+  recitationState.chunks[chunkId] = {
+    ...existing,
+    lastPracticed: todayISO()
+  };
+  touchPrayerActivity();
+  if (save) saveStore();
+}
+
+function playPrayerChunkAudio(chunk, { rate = 1, trackFlowAudio = false } = {}) {
+  const url = getPrayerAudioUrl(chunk);
+  if (url) {
+    return new Promise((resolve) => {
+      const audio = new Audio(url);
+      audio.playbackRate = rate;
+
+      const finish = (result) => {
+        audio.onended = null;
+        audio.onerror = null;
+        if (trackFlowAudio && appState.ui.prayerFlowAudio === audio) {
+          appState.ui.prayerFlowAudio = null;
+          appState.ui.prayerFlowAudioResolver = null;
+        }
+        resolve(result);
+      };
+
+      audio.onended = () => finish(true);
+      audio.onerror = () => finish(false);
+
+      if (trackFlowAudio) {
+        clearPrayerFlowAudio();
+        appState.ui.prayerFlowAudio = audio;
+        appState.ui.prayerFlowAudioResolver = finish;
+      }
+
+      audio.play().catch(() => finish(false));
+    });
+  }
+
+  if ("speechSynthesis" in window) {
+    return new Promise((resolve) => {
+      const utterance = new SpeechSynthesisUtterance(chunk.arabic || chunk.transliteration || "");
+      utterance.lang = "ar";
+      utterance.rate = Math.max(0.7, Math.min(1.2, rate));
+      utterance.onend = () => resolve(true);
+      utterance.onerror = () => resolve(false);
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+    });
+  }
+
+  return Promise.resolve(false);
+}
+
+function chooseTodayPrayerTarget() {
+  const ordered = [...appState.data.prayerRecitations].sort((a, b) => a.order - b.order);
+  const rows = ordered.map((recitation) => ({ recitation, progress: prayerRecitationProgress(recitation) }));
+  const targetRow = rows.find((row) => row.progress.status !== "memorised") || rows[0] || null;
+  if (!targetRow) return null;
+  const recitationState = ensurePrayerRecitationState(
+    targetRow.recitation.id,
+    targetRow.recitation.chunks.map((chunk) => chunk.id)
+  );
+  const nextChunk =
+    targetRow.recitation.chunks.find(
+      (chunk) => (recitationState.chunks[chunk.id]?.status || "new") !== "memorised"
+    ) || targetRow.recitation.chunks[0];
+
+  return {
+    recitation: targetRow.recitation,
+    progress: targetRow.progress,
+    nextChunk
+  };
+}
+
+async function startPrayerShadow(recitationId, chunkId) {
+  const recitation = getPrayerRecitationById(recitationId);
+  if (!recitation) return;
+  const chunk = recitation.chunks.find((item) => item.id === chunkId);
+  if (!chunk) return;
+
+  clearPrayerShadowTimer();
+  appState.ui.prayerShadow = {
+    recitationId,
+    chunkId,
+    stage: "playing",
+    countdown: 0
+  };
+  renderRoute();
+  await playPrayerChunkAudio(chunk, { rate: 1 });
+  trackPrayerChunkPracticed(recitationId, chunkId, true);
+
+  if (!appState.ui.prayerShadow || appState.ui.prayerShadow.chunkId !== chunkId) return;
+  appState.ui.prayerShadow = {
+    recitationId,
+    chunkId,
+    stage: "repeat",
+    countdown: 3
+  };
+  renderRoute();
+  appState.ui.prayerShadowTimerId = setInterval(() => {
+    if (!appState.ui.prayerShadow) {
+      clearPrayerShadowTimer();
+      return;
+    }
+    appState.ui.prayerShadow.countdown -= 1;
+    if (appState.ui.prayerShadow.countdown <= 0) {
+      clearPrayerShadowTimer();
+      appState.ui.prayerShadow = null;
+    }
+    renderRoute();
+  }, 1000);
+}
+
+function stopPrayerFlow({ rerender = true } = {}) {
+  if (appState.ui.prayerFlow) {
+    appState.ui.prayerFlow.isPlaying = false;
+  }
+  clearPrayerFlowAudio();
+  appState.ui.prayerFlow = null;
+  if (rerender) renderRoute();
+}
+
+async function startPrayerFlow(recitationId) {
+  const recitation = getPrayerRecitationById(recitationId);
+  if (!recitation) return;
+  const chosenSpeed =
+    appState.ui.prayerFlow?.recitationId === recitationId ? appState.ui.prayerFlow.speed || 1 : 1;
+
+  stopPrayerFlow({ rerender: false });
+  appState.ui.prayerFlow = {
+    recitationId,
+    currentIndex: -1,
+    isPlaying: true,
+    speed: chosenSpeed
+  };
+  renderRoute();
+
+  for (let index = 0; index < recitation.chunks.length; index += 1) {
+    if (!appState.ui.prayerFlow?.isPlaying || appState.ui.prayerFlow.recitationId !== recitationId) return;
+    appState.ui.prayerFlow.currentIndex = index;
+    renderRoute();
+    await playPrayerChunkAudio(recitation.chunks[index], {
+      rate: appState.ui.prayerFlow.speed || 1,
+      trackFlowAudio: true
+    });
+    trackPrayerChunkPracticed(recitationId, recitation.chunks[index].id, false);
+  }
+
+  if (appState.ui.prayerFlow?.recitationId === recitationId) {
+    appState.ui.prayerFlow.isPlaying = false;
+    appState.ui.prayerFlow.currentIndex = -1;
+  }
+  touchPrayerActivity();
+  saveStore();
+  renderRoute();
+}
+
+function startPrayerTest(recitationId) {
+  appState.ui.prayerTest = {
+    recitationId,
+    index: 0,
+    revealed: false,
+    results: [],
+    completed: false
+  };
+  renderRoute();
+}
+
+function advancePrayerTest(recitation, gotIt) {
+  if (!appState.ui.prayerTest || appState.ui.prayerTest.recitationId !== recitation.id) return;
+  const currentChunk = recitation.chunks[appState.ui.prayerTest.index];
+  if (!currentChunk) return;
+  appState.ui.prayerTest.results.push({
+    chunkId: currentChunk.id,
+    gotIt
+  });
+  trackPrayerChunkPracticed(recitation.id, currentChunk.id, false);
+
+  appState.ui.prayerTest.index += 1;
+  appState.ui.prayerTest.revealed = false;
+  if (appState.ui.prayerTest.index >= recitation.chunks.length) {
+    appState.ui.prayerTest.completed = true;
+    const hitRate = appState.ui.prayerTest.results.filter((row) => row.gotIt).length / appState.ui.prayerTest.results.length;
+    if (hitRate >= 0.85) {
+      setPrayerRecitationFullStatus(recitation.id, "memorised");
+    } else if (hitRate >= 0.4) {
+      setPrayerRecitationFullStatus(recitation.id, "practicing");
+    } else {
+      setPrayerRecitationFullStatus(recitation.id, "new");
+    }
+  } else {
+    touchPrayerActivity();
+    saveStore();
+  }
+  renderRoute();
+}
+
+function renderSalahHome() {
+  const progress = overallPrayerProgress();
+  const rows = [...progress.rows].sort((a, b) => a.recitation.order - b.recitation.order);
+  const todayTarget = chooseTodayPrayerTarget();
+  const agenda = todayTarget
+    ? `${todayTarget.progress.status === "new" ? "Learn" : "Review"} ${todayTarget.recitation.name}`
+    : "Open any recitation to begin";
+  const agendaSub = todayTarget?.nextChunk ? `${todayTarget.nextChunk.transliteration}` : "5-8 min";
+
+  appEl.innerHTML = `
+    <section class="fade-in stack">
+      <header class="page-intro">
+        <p class="page-kicker">Salah</p>
+        <h1 class="page-title">Learn the words of prayer</h1>
+        <p class="page-subtitle">Audio-first, respectful, and practical.</p>
+      </header>
+
+      <section class="surface stack">
+        <div class="row-between">
+          <p class="page-kicker" style="margin:0;">Prayer progress</p>
+          <span class="mono" style="font-size:12px; color: var(--text-muted);">${progress.memorisedCount}/${progress.total} memorised</span>
+        </div>
+        <div class="salah-list">
+          ${rows
+            .map((row) => {
+              const dotClass = row.progress.status;
+              return `
+                <a class="salah-row" href="#/salah/learn/${escapeHtml(row.recitation.id)}">
+                  <span class="status-dot ${dotClass}"></span>
+                  <div class="salah-row-main">
+                    <p class="salah-row-title">${escapeHtml(row.recitation.name)}</p>
+                    <p class="salah-row-meta">${row.progress.memorised}/${row.progress.total} chunks memorised</p>
+                  </div>
+                  <span class="mono" style="font-size:11px; color: var(--text-light);">#${row.recitation.order}</span>
+                </a>
+              `;
+            })
+            .join("")}
+        </div>
+      </section>
+
+      <button id="salahStartTodayBtn" class="btn cta-session" type="button" style="width: 100%;">
+        <span class="watermark">☾</span>
+        <p class="page-kicker" style="color: rgba(245, 242, 237, 0.68); margin-bottom: 8px;">Today's practice</p>
+        <p style="margin: 0; font-family: 'Newsreader', serif; font-size: 24px; font-style: italic;">${escapeHtml(agenda)}</p>
+        <p style="margin: 6px 0 0; font-size: 12px; color: rgba(245, 242, 237, 0.72);">${escapeHtml(agendaSub)} · ~5-8 min</p>
+      </button>
+
+      <section class="surface stack">
+        <p class="page-kicker" style="margin:0;">Quick reference</p>
+        <a class="category-row" href="#/salah/map"><p class="category-title">Prayer map</p><p class="category-meta">Full 2-raka'ah flow</p></a>
+        <a class="category-row" href="#/salah/wudu"><p class="category-title">Wudu guide</p><p class="category-meta">Step-by-step ablution</p></a>
+        <a class="category-row" href="#/salah/phrases"><p class="category-title">Islamic phrases</p><p class="category-meta">Everyday family phrases</p></a>
+      </section>
+    </section>
+  `;
+
+  document.getElementById("salahStartTodayBtn")?.addEventListener("click", () => {
+    if (!todayTarget) return;
+    window.location.hash = `#/salah/learn/${todayTarget.recitation.id}`;
+  });
+}
+
+function renderSalahLearn(recitationId) {
+  const recitation = getPrayerRecitationById(recitationId);
+  if (!recitation) {
+    window.location.hash = "#/salah";
+    return;
+  }
+
+  const chunkIds = recitation.chunks.map((chunk) => chunk.id);
+  const state = ensurePrayerRecitationState(recitation.id, chunkIds);
+  recalcPrayerRecitationStatus(recitation);
+
+  const flow = appState.ui.prayerFlow?.recitationId === recitation.id ? appState.ui.prayerFlow : null;
+  const test = appState.ui.prayerTest?.recitationId === recitation.id ? appState.ui.prayerTest : null;
+
+  const testMarkup = (() => {
+    if (!test) {
+      return `
+        <div class="test-box">
+          <p class="page-kicker" style="margin:0;">Test yourself</p>
+          <p class="page-subtitle" style="margin-top:4px;">Hide text, recall, then reveal and self-check.</p>
+          <button id="startPrayerTestBtn" class="btn btn-primary" type="button" style="margin-top:8px;">Start test</button>
+        </div>
+      `;
+    }
+
+    if (test.completed) {
+      const hits = test.results.filter((row) => row.gotIt).length;
+      return `
+        <div class="test-box">
+          <p class="page-kicker" style="margin:0;">Test complete</p>
+          <p class="page-title" style="font-size:24px; margin-top:4px;">${hits}/${test.results.length} correct</p>
+          <p class="page-subtitle" style="margin-top:4px;">Set your overall status below, then continue practicing flow.</p>
+          <button id="restartPrayerTestBtn" class="btn btn-soft" type="button" style="margin-top:8px;">Run test again</button>
+        </div>
+      `;
+    }
+
+    const activeChunk = recitation.chunks[test.index];
+    const hiddenBlock = !test.revealed
+      ? `
+          <p class="page-subtitle" style="margin: 4px 0 0;">Chunk ${test.index + 1} of ${recitation.chunks.length}</p>
+          <p class="page-kicker" style="margin: 10px 0 0;">Recall now, then reveal</p>
+          <div class="test-actions">
+            <button type="button" class="btn btn-ghost" id="testPlayBtn">Play audio</button>
+            <button type="button" class="btn btn-primary" id="testRevealBtn">Reveal chunk</button>
+          </div>
+        `
+      : `
+          <p class="chunk-transliteration" style="margin-top:8px;">${escapeHtml(activeChunk.transliteration)}</p>
+          <p class="arabic-text" dir="rtl">${escapeHtml(activeChunk.arabic)}</p>
+          <p class="chunk-translation">${escapeHtml(activeChunk.translation)}</p>
+          <div class="test-actions">
+            <button type="button" class="btn btn-danger" id="testMissedBtn">Missed it</button>
+            <button type="button" class="btn btn-secondary" id="testGotItBtn">Got it</button>
+          </div>
+        `;
+
+    return `
+      <div class="test-box">
+        <p class="page-kicker" style="margin:0;">Test yourself</p>
+        ${hiddenBlock}
+      </div>
+    `;
+  })();
+
+  appEl.innerHTML = `
+    <section class="fade-in stack">
+      <button type="button" id="backToSalahBtn" class="btn btn-ghost" style="width: fit-content;">← Back to Salah</button>
+
+      <header class="page-intro" style="margin-bottom: 6px;">
+        <p class="page-kicker">${escapeHtml(recitation.category)} · #${recitation.order}</p>
+        <h1 class="page-title" style="font-size: 28px;">${escapeHtml(recitation.name)}</h1>
+        <p class="page-subtitle">${escapeHtml(recitation.usedDuring || "Prayer recitation")}</p>
+      </header>
+
+      <section class="surface stack">
+        <p class="page-kicker" style="margin:0;">Flow mode</p>
+        <div class="row-between">
+          <button id="prayerFlowToggleBtn" class="btn ${flow?.isPlaying ? "btn-danger" : "btn-primary"}" type="button">${flow?.isPlaying ? "Stop flow" : "Play full recitation"}</button>
+          <div class="row-between" style="gap: 6px;">
+            <button class="btn btn-ghost prayer-speed-btn" type="button" data-speed="0.75">0.75x</button>
+            <button class="btn btn-ghost prayer-speed-btn" type="button" data-speed="1">1x</button>
+            <button class="btn btn-ghost prayer-speed-btn" type="button" data-speed="1.25">1.25x</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="surface stack">
+        <div class="row-between">
+          <p class="page-kicker" style="margin:0;">Chunks</p>
+          <span class="chip ${state.fullRecitationStatus === "memorised" ? "green" : state.fullRecitationStatus === "practicing" ? "soft" : "dark"}">${state.fullRecitationStatus}</span>
+        </div>
+        ${recitation.chunks
+          .map((chunk, index) => {
+            const expanded = appState.ui.prayerExpandedChunkId === chunk.id;
+            const cState = state.chunks[chunk.id] || { status: "new", lastPracticed: null };
+            const flowActive = flow?.isPlaying && flow.currentIndex === index;
+            const shadowActive =
+              appState.ui.prayerShadow?.recitationId === recitation.id && appState.ui.prayerShadow?.chunkId === chunk.id;
+
+            return `
+              <article class="chunk-card ${flowActive ? "surface" : ""}" style="${flowActive ? "border-color: rgba(0,106,78,0.35);" : ""}">
+                <button class="chunk-head btn btn-ghost" data-chunk-toggle="${escapeHtml(chunk.id)}" type="button" style="width:100%; text-align:left; padding: 8px 10px;">
+                  <div>
+                    <p class="chunk-transliteration" style="font-size: 22px;">${escapeHtml(chunk.transliteration)}</p>
+                    <p class="page-subtitle" style="margin-top:2px;">Chunk ${index + 1}${chunk.ayahNumber ? ` · Ayah ${chunk.ayahNumber}` : ""}</p>
+                  </div>
+                  <span class="status-dot ${cState.status}"></span>
+                </button>
+
+                ${
+                  expanded
+                    ? `
+                      <div style="padding: 0 2px 2px;">
+                        <p class="arabic-text" dir="rtl">${escapeHtml(chunk.arabic)}</p>
+                        <p class="chunk-translation">${escapeHtml(chunk.translation)}</p>
+                        ${
+                          chunk.notes
+                            ? `<p class="page-subtitle" style="margin-top:6px;">${escapeHtml(chunk.notes)}</p>`
+                            : ""
+                        }
+                        <div class="chunk-actions">
+                          <button type="button" class="btn btn-ghost" data-chunk-play="${escapeHtml(chunk.id)}">Play audio</button>
+                          <button type="button" class="btn btn-soft" data-chunk-shadow="${escapeHtml(chunk.id)}">Shadow</button>
+                        </div>
+                        <button type="button" class="btn btn-secondary chunk-status-btn" data-chunk-status="${escapeHtml(chunk.id)}" style="margin-top:8px;">Status: ${cState.status}</button>
+                        ${
+                          shadowActive
+                            ? `<div class="shadow-prompt">${
+                                appState.ui.prayerShadow.stage === "playing"
+                                  ? "Playing... listen closely"
+                                  : `Your turn... ${appState.ui.prayerShadow.countdown}s`
+                              }</div>`
+                            : ""
+                        }
+                      </div>
+                    `
+                    : ""
+                }
+              </article>
+            `;
+          })
+          .join("")}
+      </section>
+
+      ${testMarkup}
+
+      <section class="surface stack">
+        <p class="page-kicker" style="margin:0;">Self-rate full recitation</p>
+        <div class="row-between" style="gap:8px;">
+          <button type="button" class="btn btn-ghost" data-full-rate="new">Not yet</button>
+          <button type="button" class="btn btn-soft" data-full-rate="practicing">Almost</button>
+          <button type="button" class="btn btn-secondary" data-full-rate="memorised">Got it</button>
+        </div>
+      </section>
+    </section>
+  `;
+
+  document.getElementById("backToSalahBtn")?.addEventListener("click", () => {
+    window.location.hash = "#/salah";
+  });
+
+  document.getElementById("prayerFlowToggleBtn")?.addEventListener("click", () => {
+    if (appState.ui.prayerFlow?.isPlaying && appState.ui.prayerFlow.recitationId === recitation.id) {
+      stopPrayerFlow();
+      return;
+    }
+    startPrayerFlow(recitation.id);
+  });
+
+  document.querySelectorAll(".prayer-speed-btn").forEach((button) => {
+    button.addEventListener("click", () => {
+      const speed = Number(button.dataset.speed);
+      if (!Number.isFinite(speed)) return;
+      if (!appState.ui.prayerFlow || appState.ui.prayerFlow.recitationId !== recitation.id) {
+        appState.ui.prayerFlow = {
+          recitationId: recitation.id,
+          currentIndex: -1,
+          isPlaying: false,
+          speed
+        };
+      } else {
+        appState.ui.prayerFlow.speed = speed;
+      }
+      renderRoute();
+    });
+  });
+
+  document.querySelectorAll("[data-chunk-toggle]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = button.dataset.chunkToggle;
+      appState.ui.prayerExpandedChunkId = appState.ui.prayerExpandedChunkId === id ? null : id;
+      renderRoute();
+    });
+  });
+
+  document.querySelectorAll("[data-chunk-play]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const chunkId = button.dataset.chunkPlay;
+      const chunk = recitation.chunks.find((item) => item.id === chunkId);
+      if (!chunk) return;
+      playPrayerChunkAudio(chunk, { rate: 1 });
+      trackPrayerChunkPracticed(recitation.id, chunk.id, true);
+    });
+  });
+
+  document.querySelectorAll("[data-chunk-shadow]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const chunkId = button.dataset.chunkShadow;
+      startPrayerShadow(recitation.id, chunkId);
+    });
+  });
+
+  document.querySelectorAll("[data-chunk-status]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const chunkId = button.dataset.chunkStatus;
+      cyclePrayerChunkStatus(recitation.id, chunkId);
+      renderRoute();
+    });
+  });
+
+  document.querySelectorAll("[data-full-rate]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const status = button.dataset.fullRate;
+      if (!status) return;
+      setPrayerRecitationFullStatus(recitation.id, status);
+      renderRoute();
+    });
+  });
+
+  document.getElementById("startPrayerTestBtn")?.addEventListener("click", () => {
+    startPrayerTest(recitation.id);
+  });
+
+  document.getElementById("restartPrayerTestBtn")?.addEventListener("click", () => {
+    startPrayerTest(recitation.id);
+  });
+
+  document.getElementById("testPlayBtn")?.addEventListener("click", () => {
+    if (!test || test.completed) return;
+    const chunk = recitation.chunks[test.index];
+    if (!chunk) return;
+    playPrayerChunkAudio(chunk, { rate: 1 });
+  });
+
+  document.getElementById("testRevealBtn")?.addEventListener("click", () => {
+    if (!appState.ui.prayerTest || appState.ui.prayerTest.recitationId !== recitation.id) return;
+    appState.ui.prayerTest.revealed = true;
+    renderRoute();
+  });
+
+  document.getElementById("testMissedBtn")?.addEventListener("click", () => {
+    advancePrayerTest(recitation, false);
+  });
+
+  document.getElementById("testGotItBtn")?.addEventListener("click", () => {
+    advancePrayerTest(recitation, true);
+  });
+}
+
+function renderSalahMap() {
+  const getFirstChunk = (recitationId) => getPrayerRecitationById(recitationId)?.chunks?.[0] || null;
+  const steps = [
+    { position: "Standing (Qiyam)", recitationId: "takbir", text: "Takbir: Allahu Akbar" },
+    { position: "Standing (Qiyam)", recitationId: "thana", text: "Thana (opening praise)" },
+    { position: "Standing (Qiyam)", recitationId: "taawwuz", text: "Ta'awwuz (seeking refuge)" },
+    { position: "Standing (Qiyam)", recitationId: "al-fatihah", text: "Surah Al-Fatihah + Ameen" },
+    { position: "Standing (Qiyam)", recitationId: "al-ikhlas", text: "Surah Al-Ikhlas (first two raka'ahs)" },
+    { position: "Bowing (Ruku)", recitationId: "ruku", text: "Subhana rabbiyal-'azeem x3" },
+    { position: "Standing (briefly)", recitationId: "rising-from-ruku", text: "Sami'Allahu liman hamidah / Rabbana wa lakal-hamd" },
+    { position: "Prostration (Sujud)", recitationId: "sujud", text: "Subhana rabbiyal-a'la x3" },
+    { position: "Sitting", recitationId: "between-sujud", text: "Rabbighfirli x2" },
+    { position: "Final Sitting", recitationId: "tashahhud", text: "Tashahhud" },
+    { position: "Final Sitting", recitationId: "durood", text: "Durood Ibrahim" },
+    { position: "Ending", recitationId: "tasleem", text: "Tasleem: right then left" }
+  ];
+
+  appEl.innerHTML = `
+    <section class="fade-in stack">
+      <button type="button" id="backToSalahFromMap" class="btn btn-ghost" style="width: fit-content;">← Back to Salah</button>
+      <header class="page-intro" style="margin-bottom: 6px;">
+        <p class="page-kicker">Prayer map</p>
+        <h1 class="page-title" style="font-size: 28px;">2-raka'ah flow reference</h1>
+        <p class="page-subtitle">Tap any step to hear the recitation cue.</p>
+      </header>
+
+      <section class="surface prayer-map">
+        ${steps
+          .map((step, index) => {
+            const chunk = getFirstChunk(step.recitationId);
+            return `
+              <article class="prayer-step">
+                <p class="prayer-step-title">${escapeHtml(step.position)}</p>
+                <p class="prayer-step-text">${escapeHtml(step.text)}</p>
+                <div class="row-between" style="margin-top:8px;">
+                  <button type="button" class="btn btn-ghost" data-map-play="${escapeHtml(step.recitationId)}">Play cue</button>
+                  <a href="#/salah/learn/${escapeHtml(step.recitationId)}" class="btn btn-soft" style="display:inline-flex; align-items:center; justify-content:center;">Open</a>
+                </div>
+                ${chunk ? `<p class="page-subtitle" style="margin-top:8px;">${escapeHtml(chunk.transliteration)}</p>` : ""}
+              </article>
+              ${index < steps.length - 1 ? `<p class="mono" style="text-align:center; color:var(--text-light); margin:0;">↓</p>` : ""}
+            `;
+          })
+          .join("")}
+      </section>
+    </section>
+  `;
+
+  document.getElementById("backToSalahFromMap")?.addEventListener("click", () => {
+    window.location.hash = "#/salah";
+  });
+
+  document.querySelectorAll("[data-map-play]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const recitationId = button.dataset.mapPlay;
+      const chunk = getFirstChunk(recitationId);
+      if (!chunk) return;
+      playPrayerChunkAudio(chunk, { rate: 1 });
+    });
+  });
+}
+
+function renderSalahWudu() {
+  const steps = [...appState.data.wuduSteps].sort((a, b) => a.order - b.order);
+  appEl.innerHTML = `
+    <section class="fade-in stack">
+      <button type="button" id="backToSalahFromWudu" class="btn btn-ghost" style="width: fit-content;">← Back to Salah</button>
+      <header class="page-intro" style="margin-bottom: 6px;">
+        <p class="page-kicker">Wudu</p>
+        <h1 class="page-title" style="font-size: 28px;">Step-by-step ablution</h1>
+        <p class="page-subtitle">Reference guide before prayer.</p>
+      </header>
+
+      <section class="surface stack">
+        ${steps
+          .map((step) => {
+            return `
+              <article class="wudu-step">
+                <p class="wudu-step-title">${step.order}. ${escapeHtml(step.name)} ${step.nameArabic ? `· <span class="mono">${escapeHtml(step.nameArabic)}</span>` : ""}</p>
+                <p class="wudu-step-note">${escapeHtml(step.instruction)}</p>
+                ${step.times ? `<p class="page-subtitle" style="margin-top:6px;">Repeat ${step.times} time${step.times > 1 ? "s" : ""}</p>` : ""}
+              </article>
+            `;
+          })
+          .join("")}
+      </section>
+    </section>
+  `;
+
+  document.getElementById("backToSalahFromWudu")?.addEventListener("click", () => {
+    window.location.hash = "#/salah";
+  });
+}
+
+function renderSalahPhrases() {
+  appEl.innerHTML = `
+    <section class="fade-in stack">
+      <button type="button" id="backToSalahFromPhrases" class="btn btn-ghost" style="width: fit-content;">← Back to Salah</button>
+      <header class="page-intro" style="margin-bottom: 6px;">
+        <p class="page-kicker">Islamic phrases</p>
+        <h1 class="page-title" style="font-size: 28px;">Everyday family phrases</h1>
+        <p class="page-subtitle">Quick reference with pronunciation support.</p>
+      </header>
+
+      <section class="surface stack">
+        ${appState.data.commonIslamicPhrases
+          .map((phrase) => {
+            return `
+              <article class="chunk-card">
+                <p class="chunk-transliteration">${escapeHtml(phrase.transliteration)}</p>
+                <p class="arabic-text" dir="rtl">${escapeHtml(phrase.arabic)}</p>
+                <p class="chunk-translation">${escapeHtml(phrase.translation)}</p>
+                <p class="page-subtitle" style="margin-top:6px;">When: ${escapeHtml(phrase.whenToUse || "General use")}</p>
+                <button type="button" class="btn btn-ghost" data-common-play="${escapeHtml(phrase.id)}" style="margin-top:8px;">Play</button>
+              </article>
+            `;
+          })
+          .join("")}
+      </section>
+    </section>
+  `;
+
+  document.getElementById("backToSalahFromPhrases")?.addEventListener("click", () => {
+    window.location.hash = "#/salah";
+  });
+
+  document.querySelectorAll("[data-common-play]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const phrase = appState.data.commonIslamicPhrases.find((row) => row.id === button.dataset.commonPlay);
+      if (!phrase) return;
+      playPrayerChunkAudio(
+        {
+          arabic: phrase.arabic,
+          transliteration: phrase.transliteration,
+          audioFile: phrase.audioFile || ""
+        },
+        { rate: 1 }
+      );
+    });
+  });
+}
+
 function renderRoute() {
   const route = getRoute();
   setActiveNav(route.page);
+  const onSalahRoute = route.page.startsWith("salah");
 
   if (!appState.session || route.page !== "session") {
     clearQuickfireTimer();
@@ -1610,6 +2523,21 @@ function renderRoute() {
 
   if (appState.session && route.page !== "session") {
     pauseTimer(appState.session.timer);
+  }
+
+  if (route.page !== "salah-learn") {
+    clearPrayerShadowTimer();
+    appState.ui.prayerShadow = null;
+    if (appState.ui.prayerFlow?.isPlaying) {
+      appState.ui.prayerFlow.isPlaying = false;
+    }
+    clearPrayerFlowAudio();
+    appState.ui.prayerFlow = null;
+  }
+
+  if (!onSalahRoute) {
+    appState.ui.prayerTest = null;
+    appState.ui.prayerFlow = null;
   }
 
   if (route.page === "home") {
@@ -1647,6 +2575,31 @@ function renderRoute() {
     return;
   }
 
+  if (route.page === "salah-home") {
+    renderSalahHome();
+    return;
+  }
+
+  if (route.page === "salah-learn") {
+    renderSalahLearn(route.recitationId);
+    return;
+  }
+
+  if (route.page === "salah-map") {
+    renderSalahMap();
+    return;
+  }
+
+  if (route.page === "salah-wudu") {
+    renderSalahWudu();
+    return;
+  }
+
+  if (route.page === "salah-phrases") {
+    renderSalahPhrases();
+    return;
+  }
+
   renderHome();
 }
 
@@ -1661,13 +2614,22 @@ function updateClock() {
 }
 
 async function loadData() {
-  const [phrases, drills, categories] = await Promise.all([
+  const [phrases, drills, categories, prayerPayload, wuduPayload] = await Promise.all([
     fetch("./data/phrases.json").then((r) => r.json()),
     fetch("./data/drills.json").then((r) => r.json()),
-    fetch("./data/categories.json").then((r) => r.json())
+    fetch("./data/categories.json").then((r) => r.json()),
+    fetch("./data/prayer.json").then((r) => r.json()),
+    fetch("./data/wudu.json").then((r) => r.json())
   ]);
 
-  appState.data = { phrases, drills, categories };
+  appState.data = {
+    phrases,
+    drills,
+    categories,
+    prayerRecitations: [...(prayerPayload.recitations || [])].sort((a, b) => a.order - b.order),
+    wuduSteps: [...(wuduPayload.steps || [])].sort((a, b) => a.order - b.order),
+    commonIslamicPhrases: prayerPayload.commonPhrases || []
+  };
 }
 
 async function init() {
@@ -1685,14 +2647,19 @@ async function init() {
 
   window.addEventListener("hashchange", () => {
     appState.ui.expandedPhraseId = null;
+    appState.ui.prayerExpandedChunkId = null;
     renderRoute();
   });
 
   document.addEventListener("visibilitychange", () => {
-    if (!appState.session) return;
     if (document.hidden) {
-      pauseTimer(appState.session.timer);
-    } else if (getRoute().page === "session") {
+      if (appState.session) {
+        pauseTimer(appState.session.timer);
+      }
+      if (appState.ui.prayerFlow?.isPlaying) {
+        stopPrayerFlow({ rerender: false });
+      }
+    } else if (appState.session && getRoute().page === "session") {
       resumeTimer(appState.session.timer);
     }
   });

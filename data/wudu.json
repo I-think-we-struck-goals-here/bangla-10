@@ -1,0 +1,73 @@
+{
+  "steps": [
+    {
+      "order": 1,
+      "name": "Intention",
+      "nameArabic": "نية",
+      "instruction": "Form the intention in your heart to perform wudu for prayer.",
+      "action": "mental"
+    },
+    {
+      "order": 2,
+      "name": "Say Bismillah",
+      "instruction": "Say Bismillah quietly.",
+      "action": "speak"
+    },
+    {
+      "order": 3,
+      "name": "Wash Hands",
+      "instruction": "Wash both hands up to the wrists three times. Start with the right hand.",
+      "action": "wash",
+      "times": 3
+    },
+    {
+      "order": 4,
+      "name": "Rinse Mouth",
+      "instruction": "Take water into the mouth, swirl, and spit out. Three times.",
+      "action": "wash",
+      "times": 3
+    },
+    {
+      "order": 5,
+      "name": "Clean Nose",
+      "instruction": "Sniff water into the nostrils then blow it out. Three times.",
+      "action": "wash",
+      "times": 3
+    },
+    {
+      "order": 6,
+      "name": "Wash Face",
+      "instruction": "Wash the full face from hairline to chin and ear to ear. Three times.",
+      "action": "wash",
+      "times": 3
+    },
+    {
+      "order": 7,
+      "name": "Wash Arms",
+      "instruction": "Wash right arm from fingertips to elbow three times, then left arm.",
+      "action": "wash",
+      "times": 3
+    },
+    {
+      "order": 8,
+      "name": "Wipe Head",
+      "instruction": "With wet hands, wipe over the head from front to back and back to front once.",
+      "action": "wipe",
+      "times": 1
+    },
+    {
+      "order": 9,
+      "name": "Clean Ears",
+      "instruction": "With wet fingers wipe inside and behind the ears once.",
+      "action": "wipe",
+      "times": 1
+    },
+    {
+      "order": 10,
+      "name": "Wash Feet",
+      "instruction": "Wash right foot up to the ankle three times, including between toes, then left foot.",
+      "action": "wash",
+      "times": 3
+    }
+  ]
+}
