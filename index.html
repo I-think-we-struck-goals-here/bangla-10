@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Bangla 10</title>
+    <meta
+      name="description"
+      content="Bangla 10 is a minimal daily Bangla conversation trainer powered by spaced repetition, active recall, and practical family phrases."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Newsreader:opsz,wght,ital@6..72,300..700,0;6..72,300..700,1&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell" id="appShell">
+      <div class="app-header" id="appHeader">
+        <div class="status-left" id="clockLabel">09:41</div>
+        <div class="brand">bangla 10</div>
+        <div class="status-right">●●●</div>
+      </div>
+
+      <section class="app-content" id="app"></section>
+
+      <nav class="bottom-nav" id="bottomNav">
+        <a class="nav-item" data-route="#/" href="#/">
+          <span class="nav-icon">◉</span>
+          <span class="nav-label">Today</span>
+        </a>
+        <a class="nav-item" data-route="#/phrases" href="#/phrases">
+          <span class="nav-icon">▦</span>
+          <span class="nav-label">Cards</span>
+        </a>
+        <a class="nav-item" data-route="#/drills" href="#/drills">
+          <span class="nav-icon">◎</span>
+          <span class="nav-label">Drill</span>
+        </a>
+        <a class="nav-item" data-route="#/progress" href="#/progress">
+          <span class="nav-icon">◈</span>
+          <span class="nav-label">Progress</span>
+        </a>
+      </nav>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

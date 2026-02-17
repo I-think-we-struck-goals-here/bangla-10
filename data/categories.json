@@ -1,0 +1,119 @@
+[
+  {
+    "id": "greetings",
+    "label": "Greetings & Farewells",
+    "emoji": "👋",
+    "tier": 1,
+    "order": 1,
+    "totalTarget": 24,
+    "description": "Everyday greetings, introductions, and goodbyes for respectful family interactions."
+  },
+  {
+    "id": "politeness",
+    "label": "Politeness & Respect",
+    "emoji": "🙏",
+    "tier": 1,
+    "order": 2,
+    "totalTarget": 20,
+    "description": "Essential respectful language, apologies, and softeners used with elders."
+  },
+  {
+    "id": "food",
+    "label": "Food & Dining",
+    "emoji": "🍛",
+    "tier": 1,
+    "order": 3,
+    "totalTarget": 18,
+    "description": "High-frequency mealtime and hospitality phrases for family visits."
+  },
+  {
+    "id": "responses",
+    "label": "Basic Responses",
+    "emoji": "💬",
+    "tier": 1,
+    "order": 4,
+    "totalTarget": 18,
+    "description": "Quick conversational responses to keep interactions flowing naturally."
+  },
+  {
+    "id": "family",
+    "label": "Family Terms",
+    "emoji": "🏠",
+    "tier": 2,
+    "order": 5,
+    "totalTarget": 32,
+    "description": "Family vocabulary and correct address forms for relatives."
+  },
+  {
+    "id": "compliments",
+    "label": "Compliments & Appreciation",
+    "emoji": "✨",
+    "tier": 2,
+    "order": 6,
+    "totalTarget": 20,
+    "description": "Warm, respectful compliments to build connection."
+  },
+  {
+    "id": "questions",
+    "label": "Questions & Small Talk",
+    "emoji": "❓",
+    "tier": 2,
+    "order": 7,
+    "totalTarget": 36,
+    "description": "Common questions and small-talk phrases for social conversations."
+  },
+  {
+    "id": "time",
+    "label": "Numbers & Time",
+    "emoji": "🕒",
+    "tier": 2,
+    "order": 8,
+    "totalTarget": 32,
+    "description": "High-frequency numbers, dates, and time references."
+  },
+  {
+    "id": "feelings",
+    "label": "Feelings & Opinions",
+    "emoji": "🙂",
+    "tier": 3,
+    "order": 9,
+    "totalTarget": 24,
+    "description": "Expressing mood, comfort, and personal opinions naturally."
+  },
+  {
+    "id": "directions",
+    "label": "Directions & Places",
+    "emoji": "🧭",
+    "tier": 3,
+    "order": 10,
+    "totalTarget": 20,
+    "description": "Place and movement language for practical day-to-day communication."
+  },
+  {
+    "id": "culture",
+    "label": "Cultural & Religious",
+    "emoji": "🌙",
+    "tier": 3,
+    "order": 11,
+    "totalTarget": 28,
+    "description": "Festival, faith, and culturally common expressions."
+  },
+  {
+    "id": "practical",
+    "label": "Emergencies & Practical",
+    "emoji": "🚑",
+    "tier": 3,
+    "order": 12,
+    "totalTarget": 24,
+    "description": "Useful phrases for logistics, help, and practical needs."
+  },
+  {
+    "id": "connection",
+    "label": "Endearment & Connection",
+    "emoji": "💞",
+    "tier": 3,
+    "order": 13,
+    "totalTarget": 24,
+    "description": "Affectionate and relational phrases for closer family connection."
+  }
+]

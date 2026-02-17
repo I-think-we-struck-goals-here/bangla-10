@@ -1,0 +1,572 @@
+[
+  {
+    "id": "drill-001",
+    "title": "Arriving at the in-laws",
+    "description": "The first greeting exchange when you arrive.",
+    "category": "greetings",
+    "difficulty": 1,
+    "culturalNote": "Greet elders first and keep respectful forms.",
+    "lines": [
+      {
+        "speaker": "them",
+        "speakerLabel": "Mother-in-law",
+        "bangla": "আসসালামু আলাইকুম!",
+        "phonetic": "assalamu alaikum!",
+        "english": "Peace be upon you!"
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "ওয়ালাইকুম আসসালাম! কেমন আছেন?",
+        "phonetic": "walaikum assalam! kemon achhen?",
+        "english": "And peace upon you! How are you?"
+      },
+      {
+        "speaker": "them",
+        "speakerLabel": "Mother-in-law",
+        "bangla": "আলহামদুলিল্লাহ, ভালো। তুমি কেমন?",
+        "phonetic": "alhamdulillah, bhalo. tumi kemon?",
+        "english": "Thanks to God, good. How are you?"
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "ভালো আছি। আপনাদের দেখে খুব ভালো লাগছে।",
+        "phonetic": "bhalo achhi. apnader dekhe khub bhalo lagchhe.",
+        "english": "I'm well. I'm very happy to see you all."
+      }
+    ]
+  },
+  {
+    "id": "drill-002",
+    "title": "Sitting down to eat",
+    "description": "A simple mealtime exchange before eating.",
+    "category": "food",
+    "difficulty": 1,
+    "culturalNote": "Hosts may offer food repeatedly. Decline gently and appreciatively.",
+    "lines": [
+      {
+        "speaker": "them",
+        "speakerLabel": "Host",
+        "bangla": "চলুন, খেতে বসি।",
+        "phonetic": "cholun, khete boshi.",
+        "english": "Come, let's sit and eat."
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "জি, ধন্যবাদ।",
+        "phonetic": "ji, dhonnobad.",
+        "english": "Yes, thank you."
+      },
+      {
+        "speaker": "them",
+        "speakerLabel": "Host",
+        "bangla": "আর একটু ভাত দেব?",
+        "phonetic": "ar ektu bhat debo?",
+        "english": "Shall I give a little more rice?"
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "আর একটু দিন, দয়া করে।",
+        "phonetic": "ar ektu din, doya kore.",
+        "english": "Please give me a little more."
+      }
+    ]
+  },
+  {
+    "id": "drill-003",
+    "title": "Complimenting the food",
+    "description": "How to praise cooking naturally.",
+    "category": "food",
+    "difficulty": 1,
+    "culturalNote": "Specific compliments (fish, curry, sweets) feel more sincere.",
+    "lines": [
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "রান্না অসাধারণ হয়েছে।",
+        "phonetic": "ranna oshadharon hoyechhe.",
+        "english": "The cooking is amazing."
+      },
+      {
+        "speaker": "them",
+        "speakerLabel": "Host",
+        "bangla": "সত্যি? ভালো লেগেছে?",
+        "phonetic": "shottyi? bhalo legechhe?",
+        "english": "Really? Did you like it?"
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "জি, খুব ভালো লাগছে।",
+        "phonetic": "ji, khub bhalo lagchhe.",
+        "english": "Yes, I really like it."
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "মাছ খুব মজার।",
+        "phonetic": "mach khub mojar.",
+        "english": "The fish is very tasty."
+      }
+    ]
+  },
+  {
+    "id": "drill-004",
+    "title": "Asking about family members",
+    "description": "Polite family check-in questions.",
+    "category": "family",
+    "difficulty": 2,
+    "culturalNote": "Family check-ins are a core part of conversation.",
+    "lines": [
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "আব্বা কেমন আছেন?",
+        "phonetic": "abba kemon achhen?",
+        "english": "How is father?"
+      },
+      {
+        "speaker": "them",
+        "speakerLabel": "Relative",
+        "bangla": "ভালো আছেন, আলহামদুলিল্লাহ।",
+        "phonetic": "bhalo achhen, alhamdulillah.",
+        "english": "He is well, thanks to God."
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "আপনার মেয়ে কেমন আছে?",
+        "phonetic": "apnar meye kemon achhe?",
+        "english": "How is your daughter?"
+      },
+      {
+        "speaker": "them",
+        "speakerLabel": "Relative",
+        "bangla": "সে খুব ভালো আছে।",
+        "phonetic": "she khub bhalo achhe.",
+        "english": "She is very well."
+      }
+    ]
+  },
+  {
+    "id": "drill-005",
+    "title": "Saying goodbye after a visit",
+    "description": "Warm, respectful closing lines.",
+    "category": "greetings",
+    "difficulty": 1,
+    "culturalNote": "Leaving politely matters as much as greeting politely.",
+    "lines": [
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "আজকের জন্য ধন্যবাদ।",
+        "phonetic": "ajker jonno dhonnobad.",
+        "english": "Thank you for today."
+      },
+      {
+        "speaker": "them",
+        "speakerLabel": "Host",
+        "bangla": "আবার আসবেন।",
+        "phonetic": "abar ashben.",
+        "english": "Please come again."
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "অবশ্যই। আবার দেখা হবে।",
+        "phonetic": "oboshshoi. abar dekha hobe.",
+        "english": "Of course. See you again."
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "খোদা হাফেজ।",
+        "phonetic": "khoda hafez.",
+        "english": "Goodbye."
+      }
+    ]
+  },
+  {
+    "id": "drill-006",
+    "title": "Phone call with mother-in-law",
+    "description": "Short respectful call opener.",
+    "category": "greetings",
+    "difficulty": 2,
+    "culturalNote": "Phone calls often begin with greeting and health check.",
+    "lines": [
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "আসসালামু আলাইকুম, আম্মা।",
+        "phonetic": "assalamu alaikum, amma.",
+        "english": "Peace be upon you, mother."
+      },
+      {
+        "speaker": "them",
+        "speakerLabel": "Mother-in-law",
+        "bangla": "ওয়ালাইকুম আসসালাম, কেমন আছো?",
+        "phonetic": "walaikum assalam, kemon achho?",
+        "english": "And peace upon you, how are you?"
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "ভালো আছি, আপনি কেমন আছেন?",
+        "phonetic": "bhalo achhi, apni kemon achhen?",
+        "english": "I'm well, how are you?"
+      },
+      {
+        "speaker": "them",
+        "speakerLabel": "Mother-in-law",
+        "bangla": "আলহামদুলিল্লাহ, ভালো।",
+        "phonetic": "alhamdulillah, bhalo.",
+        "english": "Thanks to God, well."
+      }
+    ]
+  },
+  {
+    "id": "drill-007",
+    "title": "Eid greetings",
+    "description": "Essential holiday greeting exchange.",
+    "category": "culture",
+    "difficulty": 2,
+    "culturalNote": "Festive greetings strengthen family bonds.",
+    "lines": [
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "ঈদ মোবারক!",
+        "phonetic": "eid mobarak!",
+        "english": "Eid Mubarak!"
+      },
+      {
+        "speaker": "them",
+        "speakerLabel": "Relative",
+        "bangla": "তোমাকেও ঈদ মোবারক!",
+        "phonetic": "tomakeo eid mobarak!",
+        "english": "Eid Mubarak to you too!"
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "আল্লাহ আপনারা সবাইকে ভালো রাখুন।",
+        "phonetic": "Allah apnara shobaike bhalo rakhun.",
+        "english": "May Allah keep you all well."
+      },
+      {
+        "speaker": "them",
+        "speakerLabel": "Relative",
+        "bangla": "আমিন।",
+        "phonetic": "amin.",
+        "english": "Ameen."
+      }
+    ]
+  },
+  {
+    "id": "drill-008",
+    "title": "Meeting a new relative",
+    "description": "Simple self-introduction script.",
+    "category": "greetings",
+    "difficulty": 1,
+    "culturalNote": "Start with respect language and brief self-introduction.",
+    "lines": [
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "আসসালামু আলাইকুম, আমি জ্যাক।",
+        "phonetic": "assalamu alaikum, ami Zac.",
+        "english": "Peace be upon you, I am Zac."
+      },
+      {
+        "speaker": "them",
+        "speakerLabel": "Relative",
+        "bangla": "ওয়ালাইকুম আসসালাম, দেখা হয়ে ভালো লাগলো।",
+        "phonetic": "walaikum assalam, dekha hoye bhalo laglo.",
+        "english": "Peace be upon you too, nice to meet you."
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "আমিও খুব খুশি।",
+        "phonetic": "amio khub khushi.",
+        "english": "I am very happy too."
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "আমি বাংলা শিখছি।",
+        "phonetic": "ami bangla shikhchhi.",
+        "english": "I am learning Bangla."
+      }
+    ]
+  },
+  {
+    "id": "drill-009",
+    "title": "At the bazar",
+    "description": "Practical buying exchange.",
+    "category": "practical",
+    "difficulty": 2,
+    "culturalNote": "Short clear phrases are best in busy markets.",
+    "lines": [
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "এটার দাম কত?",
+        "phonetic": "etar dam koto?",
+        "english": "How much is this?"
+      },
+      {
+        "speaker": "them",
+        "speakerLabel": "Seller",
+        "bangla": "দুইশো টাকা।",
+        "phonetic": "duisho taka.",
+        "english": "Two hundred taka."
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "একটু কম হবে?",
+        "phonetic": "ektu kom hobe?",
+        "english": "Can it be a little less?"
+      },
+      {
+        "speaker": "them",
+        "speakerLabel": "Seller",
+        "bangla": "ঠিক আছে, একশো আশি।",
+        "phonetic": "thik achhe, eksho ashi.",
+        "english": "Okay, one hundred eighty."
+      }
+    ]
+  },
+  {
+    "id": "drill-010",
+    "title": "Talking about the weather",
+    "description": "Quick weather small talk.",
+    "category": "questions",
+    "difficulty": 1,
+    "culturalNote": "Weather is a safe and common conversation starter.",
+    "lines": [
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "আজকে খুব গরম, তাই না?",
+        "phonetic": "ajke khub gorom, tai na?",
+        "english": "It's very hot today, right?"
+      },
+      {
+        "speaker": "them",
+        "speakerLabel": "Relative",
+        "bangla": "হ্যাঁ, খুব গরম।",
+        "phonetic": "ha, khub gorom.",
+        "english": "Yes, very hot."
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "বৃষ্টি হলে ভালো লাগবে।",
+        "phonetic": "brishti hole bhalo lagbe.",
+        "english": "It would be nice if it rained."
+      },
+      {
+        "speaker": "them",
+        "speakerLabel": "Relative",
+        "bangla": "ইনশাআল্লাহ বৃষ্টি হবে।",
+        "phonetic": "inshaAllah brishti hobe.",
+        "english": "God willing it will rain."
+      }
+    ]
+  },
+  {
+    "id": "drill-011",
+    "title": "Asking someone to repeat",
+    "description": "Comprehension recovery phrases.",
+    "category": "responses",
+    "difficulty": 1,
+    "culturalNote": "People are usually very supportive when you ask clearly.",
+    "lines": [
+      {
+        "speaker": "them",
+        "speakerLabel": "Relative",
+        "bangla": "তুমি কাল আসবে তো?",
+        "phonetic": "tumi kal ashbe to?",
+        "english": "You'll come tomorrow, right?"
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "মাফ করবেন, আবার বলুন।",
+        "phonetic": "maaf korben, abar bolun.",
+        "english": "Sorry, please say it again."
+      },
+      {
+        "speaker": "them",
+        "speakerLabel": "Relative",
+        "bangla": "কাল আসবেন?",
+        "phonetic": "kal ashben?",
+        "english": "Will you come tomorrow?"
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "জি, আসবো ইনশাআল্লাহ।",
+        "phonetic": "ji, ashbo inshaAllah.",
+        "english": "Yes, I will come, God willing."
+      }
+    ]
+  },
+  {
+    "id": "drill-012",
+    "title": "Introducing yourself",
+    "description": "Short polite introduction script.",
+    "category": "greetings",
+    "difficulty": 1,
+    "culturalNote": "Keep introduction brief and respectful.",
+    "lines": [
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "আমার নাম জ্যাক।",
+        "phonetic": "amar nam Zac.",
+        "english": "My name is Zac."
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "আমি ইংল্যান্ড থেকে এসেছি।",
+        "phonetic": "ami England theke eshechhi.",
+        "english": "I came from England."
+      },
+      {
+        "speaker": "them",
+        "speakerLabel": "Relative",
+        "bangla": "আপনাকে দেখে ভালো লাগলো।",
+        "phonetic": "apnake dekhe bhalo laglo.",
+        "english": "Nice to meet you."
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "আমিও খুব খুশি।",
+        "phonetic": "amio khub khushi.",
+        "english": "I am very happy too."
+      }
+    ]
+  },
+  {
+    "id": "drill-013",
+    "title": "Talking about your children",
+    "description": "Simple family talk with affection.",
+    "category": "family",
+    "difficulty": 2,
+    "culturalNote": "Family-centered conversation is often warm and detailed.",
+    "lines": [
+      {
+        "speaker": "them",
+        "speakerLabel": "Relative",
+        "bangla": "বাচ্চারা কেমন আছে?",
+        "phonetic": "bacchara kemon achhe?",
+        "english": "How are the children?"
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "আলহামদুলিল্লাহ, তারা ভালো আছে।",
+        "phonetic": "alhamdulillah, tara bhalo achhe.",
+        "english": "Thanks to God, they are well."
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "ওরা আপনার কথা বলে।",
+        "phonetic": "ora apnar kotha bole.",
+        "english": "They talk about you."
+      },
+      {
+        "speaker": "them",
+        "speakerLabel": "Relative",
+        "bangla": "মাশাআল্লাহ, খুব ভালো।",
+        "phonetic": "mashaAllah, khub bhalo.",
+        "english": "MashaAllah, very good."
+      }
+    ]
+  },
+  {
+    "id": "drill-014",
+    "title": "Thanking someone for a gift",
+    "description": "Polite gratitude conversation.",
+    "category": "politeness",
+    "difficulty": 1,
+    "culturalNote": "Expressing appreciation strengthens family rapport.",
+    "lines": [
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "উপহারের জন্য ধন্যবাদ।",
+        "phonetic": "upoharer jonno dhonnobad.",
+        "english": "Thank you for the gift."
+      },
+      {
+        "speaker": "them",
+        "speakerLabel": "Relative",
+        "bangla": "আপনার ভালো লেগেছে?",
+        "phonetic": "apnar bhalo legechhe?",
+        "english": "Did you like it?"
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "জি, খুব পছন্দ হয়েছে।",
+        "phonetic": "ji, khub pochhondo hoyechhe.",
+        "english": "Yes, I liked it very much."
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "আপনি খুব দয়ালু।",
+        "phonetic": "apni khub doyalu.",
+        "english": "You are very kind."
+      }
+    ]
+  },
+  {
+    "id": "drill-015",
+    "title": "Casual catch-up",
+    "description": "A short 'how have you been' style exchange.",
+    "category": "questions",
+    "difficulty": 1,
+    "culturalNote": "Start broad, then ask one specific follow-up.",
+    "lines": [
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "অনেক দিন পর দেখা।",
+        "phonetic": "onek din por dekha.",
+        "english": "Meeting after a long time."
+      },
+      {
+        "speaker": "them",
+        "speakerLabel": "Relative",
+        "bangla": "হ্যাঁ, কেমন আছেন?",
+        "phonetic": "ha, kemon achhen?",
+        "english": "Yes, how are you?"
+      },
+      {
+        "speaker": "you",
+        "speakerLabel": "You",
+        "bangla": "ভালো আছি। আপনার কী খবর?",
+        "phonetic": "bhalo achhi. apnar ki khobor?",
+        "english": "I'm well. What's your news?"
+      },
+      {
+        "speaker": "them",
+        "speakerLabel": "Relative",
+        "bangla": "সব ঠিক আছে, আলহামদুলিল্লাহ।",
+        "phonetic": "shob thik achhe, alhamdulillah.",
+        "english": "Everything is fine, thanks to God."
+      }
+    ]
+  }
+]

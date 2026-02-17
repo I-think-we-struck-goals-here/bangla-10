@@ -1,0 +1,1578 @@
+const STORAGE_KEY = "bangla10-srs";
+const STORAGE_VERSION = 1;
+const INTERVAL_DAYS = { 1: 1, 2: 2, 3: 5, 4: 14, 5: 30 };
+const MAX_QUICKFIRE_TIME = 8;
+
+const appEl = document.getElementById("app");
+const clockEl = document.getElementById("clockLabel");
+
+const appState = {
+  data: {
+    phrases: [],
+    drills: [],
+    categories: []
+  },
+  store: null,
+  session: null,
+  ui: {
+    expandedPhraseId: null,
+    phraseSearch: "",
+    categorySearch: "",
+    drillSteps: {},
+    selectedQuickView: null
+  }
+};
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function formatDisplayDate(dateValue) {
+  const d = typeof dateValue === "string" ? new Date(`${dateValue}T09:00:00`) : new Date(dateValue);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+    year: "numeric"
+  });
+}
+
+function formatShortDate(dateValue) {
+  const d = typeof dateValue === "string" ? new Date(`${dateValue}T09:00:00`) : new Date(dateValue);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  });
+}
+
+function addDays(isoDate, days) {
+  const d = new Date(`${isoDate}T09:00:00`);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function diffCalendarDays(a, b) {
+  const one = new Date(`${a}T00:00:00`);
+  const two = new Date(`${b}T00:00:00`);
+  return Math.round((two - one) / 86400000);
+}
+
+function nowGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) {
+    return { bangla: "শুভ সকাল", phonetic: "shuvo shokal", english: "Good morning" };
+  }
+  if (h < 17) {
+    return { bangla: "শুভ বিকেল", phonetic: "shuvo bikel", english: "Good afternoon" };
+  }
+  return { bangla: "শুভ সন্ধ্যা", phonetic: "shuvo shondha", english: "Good evening" };
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function pick(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function shuffled(arr) {
+  const clone = [...arr];
+  for (let i = clone.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [clone[i], clone[j]] = [clone[j], clone[i]];
+  }
+  return clone;
+}
+
+function loadStore() {
+  const fallback = {
+    version: STORAGE_VERSION,
+    phrases: {},
+    stats: {
+      totalSessions: 0,
+      currentStreak: 0,
+      longestStreak: 0,
+      lastSessionDate: null,
+      totalMinutes: 0,
+      phrasesLearned: 0,
+      totalCorrect: 0,
+      totalIncorrect: 0
+    },
+    sessions: {},
+    settings: {
+      dailyGoal: 10,
+      newPhrasesPerSession: 3,
+      maxReviewsPerSession: 12
+    }
+  };
+
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return fallback;
+    return {
+      ...fallback,
+      ...parsed,
+      stats: {
+        ...fallback.stats,
+        ...(parsed.stats || {})
+      },
+      sessions: {
+        ...(parsed.sessions || {})
+      },
+      settings: {
+        ...fallback.settings,
+        ...(parsed.settings || {})
+      },
+      phrases: {
+        ...(parsed.phrases || {})
+      }
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function saveStore() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(appState.store));
+}
+
+function getPhraseById(id) {
+  return appState.data.phrases.find((phrase) => phrase.id === id) || null;
+}
+
+function getDrillById(id) {
+  return appState.data.drills.find((drill) => drill.id === id) || null;
+}
+
+function ensurePhraseState(phraseId, persist = false) {
+  if (!appState.store.phrases[phraseId]) {
+    appState.store.phrases[phraseId] = {
+      box: 1,
+      lastReviewed: null,
+      nextReview: null,
+      timesCorrect: 0,
+      timesIncorrect: 0,
+      dateAdded: todayISO()
+    };
+    if (persist) saveStore();
+  }
+  return appState.store.phrases[phraseId];
+}
+
+function isDue(phraseState, today = todayISO()) {
+  if (!phraseState) return false;
+  if (!phraseState.nextReview) return true;
+  return phraseState.nextReview <= today;
+}
+
+function countLearnedPhraseIds() {
+  return Object.values(appState.store.phrases).filter((state) => state.timesCorrect > 0).length;
+}
+
+function categoryStats() {
+  const byCategory = new Map();
+  for (const category of appState.data.categories) {
+    byCategory.set(category.id, {
+      ...category,
+      starterCount: 0,
+      learnedCount: 0,
+      masteryCount: 0
+    });
+  }
+
+  for (const phrase of appState.data.phrases) {
+    const item = byCategory.get(phrase.category);
+    if (!item) continue;
+    item.starterCount += 1;
+    const state = appState.store.phrases[phrase.id];
+    if (state?.timesCorrect > 0) item.learnedCount += 1;
+    if (state?.box >= 5) item.masteryCount += 1;
+  }
+
+  return [...byCategory.values()].sort((a, b) => a.order - b.order);
+}
+
+function buildSessionPlan({ extraPractice = false } = {}) {
+  const today = todayISO();
+  const maxReviews = appState.store.settings.maxReviewsPerSession;
+  const minInteractions = 8;
+  const maxInteractions = 12;
+  const newPerSession = appState.store.settings.newPhrasesPerSession;
+
+  const allPhrases = appState.data.phrases;
+
+  const knownPhrases = allPhrases.filter((phrase) => !!appState.store.phrases[phrase.id]);
+  const dueReviews = knownPhrases
+    .filter((phrase) => isDue(appState.store.phrases[phrase.id], today))
+    .sort((a, b) => {
+      const sa = appState.store.phrases[a.id];
+      const sb = appState.store.phrases[b.id];
+      if (sa.box !== sb.box) return sa.box - sb.box;
+      return (sa.lastReviewed || "") < (sb.lastReviewed || "") ? -1 : 1;
+    });
+
+  const reviewSelection = dueReviews.slice(0, maxReviews);
+
+  const newPool = allPhrases.filter((phrase) => !appState.store.phrases[phrase.id]);
+  const targetInteractions = Math.min(maxInteractions, Math.max(minInteractions, reviewSelection.length + newPerSession));
+  const newNeeded = Math.min(newPerSession, Math.max(0, targetInteractions - reviewSelection.length), newPool.length);
+  const newSelection = newPool.slice(0, newNeeded);
+
+  const extraPool = knownPhrases
+    .filter((phrase) => !reviewSelection.find((selected) => selected.id === phrase.id))
+    .sort((a, b) => {
+      const sa = appState.store.phrases[a.id];
+      const sb = appState.store.phrases[b.id];
+      return (sa.nextReview || "9999-12-31") < (sb.nextReview || "9999-12-31") ? -1 : 1;
+    });
+
+  const fallback = [];
+  while (reviewSelection.length + newSelection.length + fallback.length < minInteractions && extraPool.length) {
+    fallback.push(extraPool.shift());
+  }
+
+  const reviewItems = reviewSelection.map((phrase) => ({ phraseId: phrase.id, type: "review" }));
+  const newItems = newSelection.map((phrase) => ({ phraseId: phrase.id, type: "new" }));
+  const fallbackItems = fallback.map((phrase) => ({ phraseId: phrase.id, type: "review" }));
+
+  const interleaved = [];
+  const reviewsQueue = [...reviewItems, ...fallbackItems];
+  const newQueue = [...newItems];
+
+  while (reviewsQueue.length || newQueue.length) {
+    if (reviewsQueue.length) interleaved.push(reviewsQueue.shift());
+    if (reviewsQueue.length) interleaved.push(reviewsQueue.shift());
+    if (newQueue.length) interleaved.push(newQueue.shift());
+  }
+
+  const items = interleaved.slice(0, maxReviews);
+
+  if (extraPractice && items.length < minInteractions) {
+    const practicePool = shuffled(allPhrases).filter((phrase) => !items.some((item) => item.phraseId === phrase.id));
+    while (items.length < minInteractions && practicePool.length) {
+      const p = practicePool.shift();
+      items.push({ phraseId: p.id, type: appState.store.phrases[p.id] ? "review" : "new" });
+    }
+  }
+
+  return {
+    date: today,
+    items,
+    reviewCount: items.filter((item) => item.type === "review").length,
+    newCount: items.filter((item) => item.type === "new").length,
+    estimatedMinutes: Math.max(8, Math.min(12, Math.round((items.length * 0.9 + 2) * 10) / 10))
+  };
+}
+
+function createTimer() {
+  const now = Date.now();
+  return {
+    paused: false,
+    accumulatedMs: 0,
+    lastResumeAt: now
+  };
+}
+
+function pauseTimer(timer) {
+  if (!timer || timer.paused) return;
+  timer.accumulatedMs += Date.now() - timer.lastResumeAt;
+  timer.paused = true;
+}
+
+function resumeTimer(timer) {
+  if (!timer || !timer.paused) return;
+  timer.lastResumeAt = Date.now();
+  timer.paused = false;
+}
+
+function timerElapsedMs(timer) {
+  if (!timer) return 0;
+  if (timer.paused) return timer.accumulatedMs;
+  return timer.accumulatedMs + (Date.now() - timer.lastResumeAt);
+}
+
+function startSession(extraPractice = false) {
+  const plan = buildSessionPlan({ extraPractice });
+  if (!plan.items.length) return;
+
+  for (const item of plan.items) {
+    if (item.type === "new") ensurePhraseState(item.phraseId, false);
+  }
+  saveStore();
+
+  const categoryFrequency = new Map();
+  for (const item of plan.items) {
+    const phrase = getPhraseById(item.phraseId);
+    if (!phrase) continue;
+    categoryFrequency.set(phrase.category, (categoryFrequency.get(phrase.category) || 0) + 1);
+  }
+  const primaryCategory = [...categoryFrequency.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "greetings";
+
+  const matchingDrills = appState.data.drills.filter((drill) => drill.category === primaryCategory);
+  const fallbackDrill = appState.data.drills[0] || null;
+  const selectedDrill = pick(matchingDrills.length ? matchingDrills : [fallbackDrill].filter(Boolean));
+
+  const questionIds = [...new Set(plan.items.map((item) => item.phraseId))];
+  const knownIds = Object.keys(appState.store.phrases);
+  const pool = [...questionIds, ...knownIds.filter((id) => !questionIds.includes(id))];
+
+  const questions = [];
+  for (const phraseId of shuffled(pool).slice(0, 8)) {
+    const phrase = getPhraseById(phraseId);
+    if (!phrase) continue;
+    const distractors = shuffled(
+      appState.data.phrases
+        .filter((candidate) => candidate.id !== phrase.id)
+        .map((candidate) => candidate.phonetic)
+    ).slice(0, 3);
+
+    questions.push({
+      phraseId: phrase.id,
+      english: phrase.english,
+      correct: phrase.phonetic,
+      options: shuffled([phrase.phonetic, ...distractors])
+    });
+  }
+
+  appState.session = {
+    plan,
+    phase: "cards",
+    cardIndex: 0,
+    cardFlipped: false,
+    ratings: [],
+    drillId: selectedDrill?.id || null,
+    drillStep: 0,
+    quickfire: {
+      questions,
+      index: 0,
+      selected: null,
+      locked: false,
+      remaining: MAX_QUICKFIRE_TIME,
+      timerId: null,
+      correct: 0,
+      incorrect: 0
+    },
+    timer: createTimer(),
+    isExtraPractice: extraPractice,
+    completeStats: null
+  };
+
+  window.location.hash = "#/session";
+}
+
+function clearQuickfireTimer() {
+  if (!appState.session?.quickfire?.timerId) return;
+  clearInterval(appState.session.quickfire.timerId);
+  appState.session.quickfire.timerId = null;
+}
+
+function updateQuickfireTimerUi() {
+  const remainingEl = document.getElementById("quickfireRemaining");
+  const fillEl = document.getElementById("quickfireFill");
+  if (!remainingEl || !fillEl || !appState.session) return;
+  remainingEl.textContent = `${appState.session.quickfire.remaining}s`;
+  fillEl.style.width = `${(appState.session.quickfire.remaining / MAX_QUICKFIRE_TIME) * 100}%`;
+}
+
+function moveToNextQuickfireQuestion() {
+  if (!appState.session) return;
+  appState.session.quickfire.index += 1;
+  appState.session.quickfire.selected = null;
+  appState.session.quickfire.locked = false;
+
+  if (appState.session.quickfire.index >= appState.session.quickfire.questions.length) {
+    appState.session.phase = "complete";
+    finalizeSession();
+    renderRoute();
+    return;
+  }
+
+  appState.session.quickfire.remaining = MAX_QUICKFIRE_TIME;
+  renderRoute();
+  startQuickfireTimer();
+}
+
+function startQuickfireTimer() {
+  if (!appState.session || appState.session.phase !== "quickfire") return;
+  clearQuickfireTimer();
+  appState.session.quickfire.remaining = MAX_QUICKFIRE_TIME;
+  updateQuickfireTimerUi();
+
+  appState.session.quickfire.timerId = setInterval(() => {
+    if (!appState.session || appState.session.phase !== "quickfire") {
+      clearQuickfireTimer();
+      return;
+    }
+
+    if (document.hidden) return;
+
+    appState.session.quickfire.remaining -= 1;
+    updateQuickfireTimerUi();
+
+    if (appState.session.quickfire.remaining <= 0) {
+      clearQuickfireTimer();
+      appState.session.quickfire.locked = true;
+      appState.session.quickfire.selected = null;
+      appState.session.quickfire.incorrect += 1;
+      setTimeout(() => moveToNextQuickfireQuestion(), 550);
+    }
+  }, 1000);
+}
+
+function answerQuickfire(index) {
+  if (!appState.session || appState.session.phase !== "quickfire") return;
+  if (appState.session.quickfire.locked) return;
+
+  const question = appState.session.quickfire.questions[appState.session.quickfire.index];
+  if (!question) return;
+
+  clearQuickfireTimer();
+  appState.session.quickfire.locked = true;
+  appState.session.quickfire.selected = index;
+
+  if (question.options[index] === question.correct) {
+    appState.session.quickfire.correct += 1;
+  } else {
+    appState.session.quickfire.incorrect += 1;
+  }
+
+  renderRoute();
+  setTimeout(() => moveToNextQuickfireQuestion(), 650);
+}
+
+function applyRating(phraseId, rating) {
+  const phraseState = ensurePhraseState(phraseId);
+  const today = todayISO();
+
+  let nextBox = phraseState.box;
+  let interval = INTERVAL_DAYS[phraseState.box] || 1;
+
+  if (rating === "again") {
+    nextBox = 1;
+    interval = INTERVAL_DAYS[1];
+    phraseState.timesIncorrect += 1;
+    appState.store.stats.totalIncorrect += 1;
+  } else if (rating === "hard") {
+    nextBox = phraseState.box;
+    interval = Math.max(1, Math.floor((INTERVAL_DAYS[nextBox] || 1) / 2));
+    phraseState.timesIncorrect += 1;
+    appState.store.stats.totalIncorrect += 1;
+  } else if (rating === "good") {
+    nextBox = Math.min(5, phraseState.box + 1);
+    interval = INTERVAL_DAYS[nextBox] || INTERVAL_DAYS[5];
+    phraseState.timesCorrect += 1;
+    appState.store.stats.totalCorrect += 1;
+  } else if (rating === "easy") {
+    nextBox = Math.min(5, phraseState.box + 2);
+    interval = INTERVAL_DAYS[nextBox] || INTERVAL_DAYS[5];
+    phraseState.timesCorrect += 1;
+    appState.store.stats.totalCorrect += 1;
+  }
+
+  phraseState.box = nextBox;
+  phraseState.lastReviewed = today;
+  phraseState.nextReview = addDays(today, interval);
+
+  appState.session.ratings.push({
+    phraseId,
+    rating,
+    success: rating === "good" || rating === "easy"
+  });
+
+  appState.store.stats.phrasesLearned = countLearnedPhraseIds();
+  saveStore();
+}
+
+function finalizeSession() {
+  if (!appState.session || appState.session.completeStats) return;
+
+  clearQuickfireTimer();
+  pauseTimer(appState.session.timer);
+
+  const today = todayISO();
+  const elapsedSec = Math.max(1, Math.round(timerElapsedMs(appState.session.timer) / 1000));
+  const elapsedMin = Math.max(1, Math.round(elapsedSec / 60));
+  const reviewed = appState.session.plan.items.length;
+  const newLearned = appState.session.plan.newCount;
+  const ratingSuccessCount = appState.session.ratings.filter((r) => r.success).length;
+  const ratingTotalCount = appState.session.ratings.length;
+  const quickCorrect = appState.session.quickfire.correct;
+  const quickTotal = appState.session.quickfire.questions.length;
+
+  const accuracy = ratingTotalCount ? Math.round((ratingSuccessCount / ratingTotalCount) * 100) : 0;
+
+  const alreadyCompletedToday = !!appState.store.sessions[today]?.completed;
+
+  if (!alreadyCompletedToday && !appState.session.isExtraPractice) {
+    const previousDate = appState.store.stats.lastSessionDate;
+
+    appState.store.stats.totalSessions += 1;
+    appState.store.stats.totalMinutes += elapsedMin;
+    appState.store.stats.lastSessionDate = today;
+
+    if (!previousDate) {
+      appState.store.stats.currentStreak = 1;
+    } else {
+      const daysGap = diffCalendarDays(previousDate, today);
+      if (daysGap === 0) {
+        appState.store.stats.currentStreak = Math.max(1, appState.store.stats.currentStreak);
+      } else if (daysGap === 1) {
+        appState.store.stats.currentStreak += 1;
+      } else {
+        appState.store.stats.currentStreak = 1;
+      }
+    }
+
+    appState.store.stats.longestStreak = Math.max(appState.store.stats.longestStreak, appState.store.stats.currentStreak);
+  }
+
+  const previousSession = appState.store.sessions[today] || {};
+  appState.store.sessions[today] = {
+    ...previousSession,
+    completed: true,
+    completedAt: new Date().toISOString(),
+    elapsedSec: (previousSession.elapsedSec || 0) + elapsedSec,
+    reviewed: reviewed,
+    newLearned,
+    accuracy,
+    quickfireScore: quickTotal ? Math.round((quickCorrect / quickTotal) * 100) : 0,
+    quickfireCorrect: quickCorrect,
+    quickfireTotal: quickTotal,
+    extraPracticeCount: (previousSession.extraPracticeCount || 0) + (appState.session.isExtraPractice ? 1 : 0)
+  };
+
+  appState.store.stats.phrasesLearned = countLearnedPhraseIds();
+  saveStore();
+
+  appState.session.completeStats = {
+    elapsedMin,
+    reviewed,
+    newLearned,
+    accuracy,
+    quickCorrect,
+    quickTotal
+  };
+}
+
+function getWeeklyTracker() {
+  const today = new Date();
+  const day = today.getDay();
+  const mondayShift = day === 0 ? -6 : 1 - day;
+  const monday = new Date(today);
+  monday.setDate(today.getDate() + mondayShift);
+
+  const labels = ["M", "T", "W", "T", "F", "S", "S"];
+
+  return labels.map((label, idx) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + idx);
+    const iso = d.toISOString().slice(0, 10);
+    const session = appState.store.sessions[iso];
+    return {
+      label,
+      date: iso,
+      done: !!session?.completed,
+      minutes: session ? Math.round((session.elapsedSec || 0) / 60) : 0
+    };
+  });
+}
+
+function getRoute() {
+  const hash = window.location.hash || "#/";
+  const cleaned = hash.replace(/^#/, "") || "/";
+  const parts = cleaned.split("/").filter(Boolean);
+
+  if (!parts.length) return { page: "home" };
+
+  if (parts[0] === "session") return { page: "session" };
+  if (parts[0] === "progress") return { page: "progress" };
+
+  if (parts[0] === "phrases") {
+    if (parts[1]) return { page: "phrases-category", categoryId: parts[1] };
+    return { page: "phrases" };
+  }
+
+  if (parts[0] === "drills") {
+    if (parts[1]) return { page: "drill-detail", drillId: parts[1] };
+    return { page: "drills" };
+  }
+
+  return { page: "home" };
+}
+
+function setActiveNav(routePage) {
+  const navItems = [...document.querySelectorAll(".nav-item")];
+  const navPage =
+    routePage === "home" || routePage === "session"
+      ? "#/"
+      : routePage.startsWith("phrases")
+        ? "#/phrases"
+        : routePage.startsWith("drill") || routePage === "drills"
+          ? "#/drills"
+          : "#/progress";
+
+  navItems.forEach((item) => {
+    const active = item.dataset.route === navPage;
+    item.classList.toggle("is-active", active);
+  });
+}
+
+function playAudioForPhrase(phrase) {
+  if (!phrase) return;
+
+  if (phrase.audio) {
+    const audio = new Audio(phrase.audio);
+    audio.play().catch(() => {
+      // fallback below
+    });
+    return;
+  }
+
+  if ("speechSynthesis" in window) {
+    const utterance = new SpeechSynthesisUtterance(phrase.bangla);
+    utterance.lang = "bn-BD";
+    utterance.rate = 0.82;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  }
+}
+
+function milestoneInfo(learned) {
+  const milestones = [10, 25, 50, 100, 200, 500];
+  const next = milestones.find((value) => value > learned) || milestones[milestones.length - 1];
+  return {
+    next,
+    remaining: Math.max(0, next - learned)
+  };
+}
+
+function renderHome() {
+  const greeting = nowGreeting();
+  const tracker = getWeeklyTracker();
+  const today = todayISO();
+  const completed = !!appState.store.sessions[today]?.completed;
+  const categoryRows = categoryStats();
+
+  const planPreview = buildSessionPlan({ extraPractice: completed });
+
+  const totalLearned = appState.store.stats.phrasesLearned;
+
+  appEl.innerHTML = `
+    <section class="fade-in">
+      <header class="page-intro">
+        <p class="page-kicker">${escapeHtml(formatDisplayDate(today))}</p>
+        <h1 class="page-title">${escapeHtml(greeting.phonetic)}</h1>
+        <p class="page-subtitle">${escapeHtml(greeting.english)} · ${escapeHtml(greeting.bangla)}</p>
+      </header>
+
+      <article class="surface streak-card stack">
+        <div class="row-between">
+          <div>
+            <p class="metric-value" style="color: var(--green);">${appState.store.stats.currentStreak} days</p>
+            <p class="metric-label">current streak</p>
+          </div>
+          <span class="chip green">${totalLearned} phrases learned</span>
+        </div>
+
+        <div class="week-grid">
+          ${tracker
+            .map(
+              (day) => `
+              <div class="week-cell">
+                <div class="week-dot ${day.done ? "is-done" : ""}">${day.done ? "✓" : ""}</div>
+                <div class="week-label ${day.done ? "is-done" : ""}">${day.label}</div>
+              </div>
+            `
+            )
+            .join("")}
+        </div>
+      </article>
+
+      <button class="btn cta-session" id="startSessionBtn" type="button" style="margin-top: 14px; width: 100%;">
+        <span class="watermark">১০</span>
+        <p class="page-kicker" style="color: rgba(245, 242, 237, 0.68); margin-bottom: 8px;">Today's session</p>
+        <p style="margin: 0; font-family: 'Newsreader', serif; font-size: 24px; font-style: italic;">${completed ? "Session complete ✓" : `${planPreview.reviewCount} reviews · ${planPreview.newCount} new`}</p>
+        <p style="margin: 6px 0 0; font-size: 12px; color: rgba(245, 242, 237, 0.72);">~${planPreview.estimatedMinutes} minutes · ${completed ? "Tap for extra practice" : "Daily spaced repetition"}</p>
+      </button>
+
+      <section class="surface stack category-list" style="margin-top: 14px;">
+        <div class="row-between">
+          <p class="page-kicker" style="margin: 0;">Category progress</p>
+          <a href="#/phrases" class="chip soft">Browse all</a>
+        </div>
+
+        ${categoryRows
+          .slice(0, 6)
+          .map((category) => {
+            const percent = category.starterCount ? Math.round((category.learnedCount / category.starterCount) * 100) : 0;
+            return `
+              <a class="category-row" href="#/phrases/${escapeHtml(category.id)}">
+                <div class="category-top">
+                  <div>
+                    <p class="category-title">${escapeHtml(category.emoji)} ${escapeHtml(category.label)}</p>
+                    <p class="category-meta">${category.learnedCount} of ${category.starterCount || category.totalTarget} starter phrases learned</p>
+                  </div>
+                  <span class="mono" style="font-size: 12px; color: var(--text-muted);">${percent}%</span>
+                </div>
+                <div class="progress-track">
+                  <div class="progress-fill" style="width: ${percent}%;"></div>
+                </div>
+              </a>
+            `;
+          })
+          .join("")}
+      </section>
+    </section>
+  `;
+
+  document.getElementById("startSessionBtn")?.addEventListener("click", () => {
+    startSession(completed);
+  });
+}
+
+function currentSessionPhrase() {
+  if (!appState.session) return null;
+  const item = appState.session.plan.items[appState.session.cardIndex];
+  if (!item) return null;
+  return getPhraseById(item.phraseId);
+}
+
+function renderSessionCards() {
+  const phrase = currentSessionPhrase();
+  if (!phrase) {
+    appState.session.phase = "drill";
+    renderRoute();
+    return;
+  }
+
+  const item = appState.session.plan.items[appState.session.cardIndex];
+  const progress = appState.session.plan.items.length
+    ? Math.round(((appState.session.cardIndex + 1) / appState.session.plan.items.length) * 100)
+    : 0;
+
+  appEl.innerHTML = `
+    <section class="fade-in stack">
+      <div class="row-between">
+        <div>
+          <p class="page-kicker" style="margin: 0;">Flashcard review</p>
+        </div>
+        <span class="mono" style="font-size: 12px; color: var(--text-muted);">${appState.session.cardIndex + 1}/${appState.session.plan.items.length}</span>
+      </div>
+
+      <div class="progress-track" style="height: 5px; margin-top: -2px;">
+        <div class="progress-fill" style="width: ${progress}%;"></div>
+      </div>
+
+      <article class="card-shell ${appState.session.cardFlipped ? "is-flipped" : ""}" id="flashCard">
+        <div>
+          <p class="card-category">${escapeHtml(item.type)} · ${escapeHtml(phrase.category)}</p>
+          ${
+            appState.session.cardFlipped
+              ? `
+                <p class="card-main" style="font-style: normal; font-size: 38px;">${escapeHtml(phrase.bangla)}</p>
+                <p class="card-phonetic">${escapeHtml(phrase.phonetic)}</p>
+                <p class="card-helper">${escapeHtml(phrase.english)}</p>
+                <button id="audioBtn" class="btn btn-ghost" style="margin-top: 12px; color: rgba(255,255,255,0.76); border-color: rgba(255,255,255,0.24);">Play audio</button>
+              `
+              : `
+                <p class="card-main">${escapeHtml(phrase.english)}</p>
+                <p class="card-helper">tap to reveal</p>
+              `
+          }
+        </div>
+      </article>
+
+      ${
+        appState.session.cardFlipped
+          ? `
+            <div class="rating-grid">
+              <button class="btn btn-danger" data-rating="again" type="button">Again</button>
+              <button class="btn btn-ghost" data-rating="hard" type="button">Hard</button>
+              <button class="btn btn-soft" data-rating="good" type="button">Good</button>
+              <button class="btn btn-secondary" data-rating="easy" type="button">Easy</button>
+            </div>
+          `
+          : ""
+      }
+
+      <aside class="tip-box">
+        <p class="tip-title">Cultural note</p>
+        <p class="tip-text">${escapeHtml(phrase.notes || phrase.context || "Use respectful apni form with elders and in-laws.")}</p>
+      </aside>
+
+      <div class="row-between" style="margin-top: 4px;">
+        <button id="exitSessionBtn" type="button" class="btn btn-ghost">Back</button>
+        <span class="mono" style="font-size: 12px; color: var(--text-muted);">${progress}% complete</span>
+      </div>
+    </section>
+  `;
+
+  document.getElementById("flashCard")?.addEventListener("click", () => {
+    appState.session.cardFlipped = !appState.session.cardFlipped;
+    renderRoute();
+  });
+
+  document.querySelectorAll("[data-rating]").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const rating = event.currentTarget.dataset.rating;
+      applyRating(phrase.id, rating);
+      appState.session.cardFlipped = false;
+      appState.session.cardIndex += 1;
+      if (appState.session.cardIndex >= appState.session.plan.items.length) {
+        appState.session.phase = "drill";
+        appState.session.drillStep = 0;
+      }
+      renderRoute();
+    });
+  });
+
+  document.getElementById("audioBtn")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    playAudioForPhrase(phrase);
+  });
+
+  document.getElementById("exitSessionBtn")?.addEventListener("click", () => {
+    window.location.hash = "#/";
+  });
+}
+
+function renderSessionDrill() {
+  const drill = getDrillById(appState.session.drillId) || appState.data.drills[0];
+  if (!drill) {
+    appState.session.phase = "quickfire";
+    renderRoute();
+    return;
+  }
+
+  const step = appState.session.drillStep;
+  const visibleLines = drill.lines.slice(0, step + 1);
+  const isDone = step >= drill.lines.length - 1;
+
+  appEl.innerHTML = `
+    <section class="fade-in stack">
+      <header class="page-intro" style="margin-bottom: 6px;">
+        <p class="page-kicker">Conversation drill</p>
+        <h1 class="page-title" style="font-size: 28px;">${escapeHtml(drill.title)}</h1>
+        <p class="page-subtitle">${escapeHtml(drill.description)}</p>
+      </header>
+
+      <article class="surface stack conversation">
+        ${visibleLines
+          .map((line) => {
+            const isYou = line.speaker === "you";
+            return `
+              <div class="bubble-wrap ${isYou ? "you" : "them"}">
+                <div class="speaker-label">${escapeHtml(line.speakerLabel || (isYou ? "You" : "They"))}</div>
+                <div class="bubble">
+                  <p class="bubble-bangla">${escapeHtml(line.bangla)}</p>
+                  <p class="bubble-phonetic">${escapeHtml(line.phonetic)}</p>
+                  <p class="bubble-english">${escapeHtml(line.english)}</p>
+                </div>
+              </div>
+            `;
+          })
+          .join("")}
+      </article>
+
+      <aside class="tip-box">
+        <p class="tip-title">Cultural note</p>
+        <p class="tip-text">${escapeHtml(drill.culturalNote || "Keep tone warm and respectful.")}</p>
+      </aside>
+
+      <div class="row-between">
+        <button id="drillBackBtn" type="button" class="btn btn-ghost">Back</button>
+        <button id="drillNextBtn" type="button" class="btn btn-primary">${isDone ? "Continue to quick fire" : "Next line"}</button>
+      </div>
+    </section>
+  `;
+
+  document.getElementById("drillBackBtn")?.addEventListener("click", () => {
+    appState.session.phase = "cards";
+    appState.session.cardIndex = Math.max(0, appState.session.plan.items.length - 1);
+    appState.session.cardFlipped = true;
+    renderRoute();
+  });
+
+  document.getElementById("drillNextBtn")?.addEventListener("click", () => {
+    if (isDone) {
+      appState.session.phase = "quickfire";
+      appState.session.quickfire.index = 0;
+      appState.session.quickfire.selected = null;
+      appState.session.quickfire.locked = false;
+      appState.session.quickfire.remaining = MAX_QUICKFIRE_TIME;
+      renderRoute();
+      startQuickfireTimer();
+      return;
+    }
+
+    appState.session.drillStep += 1;
+    renderRoute();
+  });
+}
+
+function renderSessionQuickfire() {
+  const quick = appState.session.quickfire;
+  const question = quick.questions[quick.index];
+
+  if (!question) {
+    appState.session.phase = "complete";
+    finalizeSession();
+    renderRoute();
+    return;
+  }
+
+  appEl.innerHTML = `
+    <section class="fade-in stack">
+      <header class="row-between">
+        <div>
+          <p class="page-kicker" style="margin: 0;">Quick fire</p>
+        </div>
+        <span class="mono" style="font-size: 12px; color: var(--text-muted);">${quick.index + 1}/${quick.questions.length}</span>
+      </header>
+
+      <article class="quickfire-shell stack">
+        <div class="row-between">
+          <span class="chip soft">Streak test</span>
+          <span class="mono" id="quickfireRemaining">${quick.remaining}s</span>
+        </div>
+        <div class="timer-track">
+          <div class="timer-fill" id="quickfireFill" style="width: ${(quick.remaining / MAX_QUICKFIRE_TIME) * 100}%;"></div>
+        </div>
+
+        <p class="page-kicker" style="margin-bottom: 0;">Translate into phonetic Bangla</p>
+        <p class="card-main" style="font-size: 27px;">${escapeHtml(question.english)}</p>
+
+        <div class="options-grid">
+          ${question.options
+            .map((option, index) => {
+              const isSelected = quick.selected === index;
+              const isCorrect = option === question.correct;
+              let className = "option-btn";
+              if (quick.locked && isCorrect) className += " is-correct";
+              if (quick.locked && isSelected && !isCorrect) className += " is-wrong";
+
+              return `<button type="button" class="${className}" data-option="${index}">${escapeHtml(option)}</button>`;
+            })
+            .join("")}
+        </div>
+
+        <div class="row-between">
+          <span class="mono" style="font-size: 12px; color: var(--text-muted);">Score: ${quick.correct}/${quick.questions.length}</span>
+          <span class="mono" style="font-size: 12px; color: var(--text-muted);">Wrong: ${quick.incorrect}</span>
+        </div>
+      </article>
+    </section>
+  `;
+
+  document.querySelectorAll("[data-option]").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      const idx = Number(event.currentTarget.dataset.option);
+      answerQuickfire(idx);
+    });
+  });
+
+  updateQuickfireTimerUi();
+}
+
+function renderSessionComplete() {
+  const stats = appState.session.completeStats;
+  if (!stats) {
+    finalizeSession();
+  }
+
+  const summary = appState.session.completeStats;
+
+  appEl.innerHTML = `
+    <section class="fade-in stack">
+      <header class="page-intro" style="margin-bottom: 6px; text-align: center;">
+        <p class="page-kicker">Session complete</p>
+        <h1 class="page-title" style="font-size: 30px;">khub bhalo</h1>
+        <p class="page-subtitle">Great consistency beats intensity. See you tomorrow.</p>
+      </header>
+
+      <article class="surface stack" style="text-align: center;">
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <p class="value">${summary.reviewed}</p>
+            <p class="label">Reviewed</p>
+          </div>
+          <div class="kpi-card">
+            <p class="value">${summary.newLearned}</p>
+            <p class="label">New</p>
+          </div>
+          <div class="kpi-card">
+            <p class="value">${summary.accuracy}%</p>
+            <p class="label">Accuracy</p>
+          </div>
+        </div>
+
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <p class="value">${summary.quickCorrect}/${summary.quickTotal}</p>
+            <p class="label">Quick fire</p>
+          </div>
+          <div class="kpi-card">
+            <p class="value">${summary.elapsedMin}m</p>
+            <p class="label">Session time</p>
+          </div>
+          <div class="kpi-card">
+            <p class="value">${appState.store.stats.currentStreak}</p>
+            <p class="label">Streak</p>
+          </div>
+        </div>
+      </article>
+
+      <div class="row-between">
+        <button id="sessionAgainBtn" class="btn btn-soft" type="button">Extra practice</button>
+        <button id="sessionHomeBtn" class="btn btn-primary" type="button">Back home</button>
+      </div>
+    </section>
+  `;
+
+  document.getElementById("sessionHomeBtn")?.addEventListener("click", () => {
+    appState.session = null;
+    window.location.hash = "#/";
+  });
+
+  document.getElementById("sessionAgainBtn")?.addEventListener("click", () => {
+    appState.session = null;
+    startSession(true);
+  });
+}
+
+function renderSession() {
+  if (!appState.session) {
+    startSession(false);
+    if (!appState.session) {
+      window.location.hash = "#/";
+      return;
+    }
+  }
+
+  resumeTimer(appState.session.timer);
+
+  if (appState.session.phase === "cards") {
+    renderSessionCards();
+    return;
+  }
+
+  if (appState.session.phase === "drill") {
+    renderSessionDrill();
+    return;
+  }
+
+  if (appState.session.phase === "quickfire") {
+    renderSessionQuickfire();
+    if (!appState.session.quickfire.timerId && !appState.session.quickfire.locked) {
+      startQuickfireTimer();
+    }
+    return;
+  }
+
+  renderSessionComplete();
+}
+
+function renderPhrasesList(phrases, { showCategoryLabel = true } = {}) {
+  if (!phrases.length) {
+    return `<div class="empty">No phrases found for this search.</div>`;
+  }
+
+  return phrases
+    .map((phrase) => {
+      const expanded = appState.ui.expandedPhraseId === phrase.id;
+      const pState = appState.store.phrases[phrase.id];
+      const status = pState
+        ? `Box ${pState.box} · ${pState.nextReview ? `Next: ${formatShortDate(pState.nextReview)}` : "Due now"}`
+        : "New phrase";
+
+      return `
+        <article class="phrase-row">
+          <button class="btn btn-ghost phrase-expand" data-phrase-id="${escapeHtml(phrase.id)}" style="width:100%; text-align:left; padding: 10px 12px;">
+            <div class="phrase-top">
+              <div>
+                <p class="phrase-title" style="font-family:'Newsreader',serif; font-size: 24px; font-style: italic; margin-bottom:2px; color: var(--green);">${escapeHtml(phrase.phonetic)}</p>
+                <p class="phrase-meta" style="font-size: 18px; color: var(--text);">${escapeHtml(phrase.bangla)}</p>
+                <p class="phrase-meta">${escapeHtml(phrase.english)}${showCategoryLabel ? ` · ${escapeHtml(phrase.category)}` : ""}</p>
+              </div>
+              <span class="mono" style="font-size:11px; color: var(--text-muted);">${escapeHtml(status)}</span>
+            </div>
+          </button>
+          ${
+            expanded
+              ? `
+                <div class="expand-content">
+                  <p style="margin:0 0 8px;"><strong>Literal:</strong> ${escapeHtml(phrase.literal || "—")}</p>
+                  <p style="margin:0 0 8px;"><strong>Notes:</strong> ${escapeHtml(phrase.notes || "—")}</p>
+                  <p style="margin:0;"><strong>Context:</strong> ${escapeHtml(phrase.context || "—")}</p>
+                </div>
+              `
+              : ""
+          }
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function bindPhraseExpand() {
+  document.querySelectorAll(".phrase-expand").forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = button.dataset.phraseId;
+      appState.ui.expandedPhraseId = appState.ui.expandedPhraseId === id ? null : id;
+      renderRoute();
+    });
+  });
+}
+
+function renderPhrases() {
+  const categories = categoryStats();
+  const term = appState.ui.phraseSearch.trim().toLowerCase();
+
+  const filteredPhrases = appState.data.phrases.filter((phrase) => {
+    if (!term) return true;
+    return [phrase.english, phrase.phonetic, phrase.bangla, phrase.category].join(" ").toLowerCase().includes(term);
+  });
+
+  appEl.innerHTML = `
+    <section class="fade-in stack">
+      <header class="page-intro" style="margin-bottom: 6px;">
+        <p class="page-kicker">Phrase bank</p>
+        <h1 class="page-title" style="font-size: 28px;">Browse by category</h1>
+        <p class="page-subtitle">Phonetic first, script second, meaning always visible.</p>
+      </header>
+
+      <input id="phraseSearchInput" class="search" placeholder="Search phrase, phonetic, or English..." value="${escapeHtml(appState.ui.phraseSearch)}" />
+
+      <section class="surface category-list stack">
+        ${categories
+          .map((cat) => {
+            const percent = cat.starterCount ? Math.round((cat.learnedCount / cat.starterCount) * 100) : 0;
+            return `
+              <a class="category-row" href="#/phrases/${escapeHtml(cat.id)}">
+                <div class="category-top">
+                  <div>
+                    <p class="category-title">${escapeHtml(cat.emoji)} ${escapeHtml(cat.label)}</p>
+                    <p class="category-meta">${cat.learnedCount}/${cat.starterCount || cat.totalTarget} starter phrases learned</p>
+                  </div>
+                  <span class="mono" style="font-size:12px; color: var(--text-muted);">${percent}%</span>
+                </div>
+                <div class="progress-track"><div class="progress-fill" style="width:${percent}%;"></div></div>
+              </a>
+            `;
+          })
+          .join("")}
+      </section>
+
+      <section class="surface stack">
+        <div class="row-between">
+          <p class="page-kicker" style="margin:0;">All starter phrases</p>
+          <span class="mono" style="font-size: 12px; color: var(--text-muted);">${filteredPhrases.length}</span>
+        </div>
+        ${renderPhrasesList(filteredPhrases)}
+      </section>
+    </section>
+  `;
+
+  document.getElementById("phraseSearchInput")?.addEventListener("input", (event) => {
+    appState.ui.phraseSearch = event.target.value;
+    renderRoute();
+  });
+
+  bindPhraseExpand();
+}
+
+function renderPhrasesCategory(categoryId) {
+  const category = appState.data.categories.find((item) => item.id === categoryId);
+  const phrases = appState.data.phrases.filter((phrase) => phrase.category === categoryId);
+  const term = appState.ui.categorySearch.trim().toLowerCase();
+  const filtered = phrases.filter((phrase) => {
+    if (!term) return true;
+    return [phrase.english, phrase.phonetic, phrase.bangla].join(" ").toLowerCase().includes(term);
+  });
+
+  if (!category) {
+    window.location.hash = "#/phrases";
+    return;
+  }
+
+  appEl.innerHTML = `
+    <section class="fade-in stack">
+      <button type="button" id="backToPhrases" class="btn btn-ghost" style="width: fit-content;">← Back to categories</button>
+
+      <header class="page-intro" style="margin-bottom: 6px;">
+        <p class="page-kicker">${escapeHtml(category.emoji)} ${escapeHtml(category.label)}</p>
+        <h1 class="page-title" style="font-size: 28px;">${escapeHtml(category.description)}</h1>
+        <p class="page-subtitle">${filtered.length} of ${phrases.length} phrases shown</p>
+      </header>
+
+      <input id="categorySearchInput" class="search" placeholder="Search in this category..." value="${escapeHtml(appState.ui.categorySearch)}" />
+
+      <section class="surface stack">
+        ${renderPhrasesList(filtered, { showCategoryLabel: false })}
+      </section>
+    </section>
+  `;
+
+  document.getElementById("backToPhrases")?.addEventListener("click", () => {
+    appState.ui.categorySearch = "";
+    window.location.hash = "#/phrases";
+  });
+
+  document.getElementById("categorySearchInput")?.addEventListener("input", (event) => {
+    appState.ui.categorySearch = event.target.value;
+    renderRoute();
+  });
+
+  bindPhraseExpand();
+}
+
+function renderDrills() {
+  appEl.innerHTML = `
+    <section class="fade-in stack">
+      <header class="page-intro" style="margin-bottom: 6px;">
+        <p class="page-kicker">Conversation drills</p>
+        <h1 class="page-title" style="font-size: 28px;">Practice real moments</h1>
+        <p class="page-subtitle">Scenario-based lines for family visits, calls, and mealtime conversation.</p>
+      </header>
+
+      <section class="surface stack">
+        ${appState.data.drills
+          .map((drill) => {
+            return `
+              <a class="drill-row" href="#/drills/${escapeHtml(drill.id)}">
+                <div class="drill-top">
+                  <div>
+                    <p class="drill-title">${escapeHtml(drill.title)}</p>
+                    <p class="drill-meta">${escapeHtml(drill.description)}</p>
+                  </div>
+                  <span class="chip ${drill.difficulty >= 2 ? "soft" : "dark"}" style="min-width: 84px;">Level ${drill.difficulty}</span>
+                </div>
+              </a>
+            `;
+          })
+          .join("")}
+      </section>
+    </section>
+  `;
+}
+
+function renderDrillDetail(drillId) {
+  const drill = getDrillById(drillId);
+  if (!drill) {
+    window.location.hash = "#/drills";
+    return;
+  }
+
+  if (appState.ui.drillSteps[drillId] == null) appState.ui.drillSteps[drillId] = 0;
+  const step = appState.ui.drillSteps[drillId];
+  const visibleLines = drill.lines.slice(0, step + 1);
+  const isDone = step >= drill.lines.length - 1;
+
+  appEl.innerHTML = `
+    <section class="fade-in stack">
+      <button type="button" id="backToDrills" class="btn btn-ghost" style="width: fit-content;">← Back to drills</button>
+
+      <header class="page-intro" style="margin-bottom: 6px;">
+        <p class="page-kicker">${escapeHtml(drill.category)} · level ${drill.difficulty}</p>
+        <h1 class="page-title" style="font-size: 28px;">${escapeHtml(drill.title)}</h1>
+        <p class="page-subtitle">${escapeHtml(drill.description)}</p>
+      </header>
+
+      <section class="surface conversation">
+        ${visibleLines
+          .map((line) => {
+            const isYou = line.speaker === "you";
+            return `
+              <div class="bubble-wrap ${isYou ? "you" : "them"}">
+                <div class="speaker-label">${escapeHtml(line.speakerLabel || (isYou ? "You" : "They"))}</div>
+                <div class="bubble">
+                  <p class="bubble-bangla">${escapeHtml(line.bangla)}</p>
+                  <p class="bubble-phonetic">${escapeHtml(line.phonetic)}</p>
+                  <p class="bubble-english">${escapeHtml(line.english)}</p>
+                </div>
+              </div>
+            `;
+          })
+          .join("")}
+      </section>
+
+      <aside class="tip-box">
+        <p class="tip-title">Cultural note</p>
+        <p class="tip-text">${escapeHtml(drill.culturalNote || "Keep tone polite and warm.")}</p>
+      </aside>
+
+      <div class="row-between">
+        <button id="drillReplayBtn" type="button" class="btn btn-soft">Restart</button>
+        <button id="drillAdvanceBtn" type="button" class="btn btn-primary">${isDone ? "Done" : "Next line"}</button>
+      </div>
+    </section>
+  `;
+
+  document.getElementById("backToDrills")?.addEventListener("click", () => {
+    window.location.hash = "#/drills";
+  });
+
+  document.getElementById("drillReplayBtn")?.addEventListener("click", () => {
+    appState.ui.drillSteps[drillId] = 0;
+    renderRoute();
+  });
+
+  document.getElementById("drillAdvanceBtn")?.addEventListener("click", () => {
+    if (isDone) {
+      window.location.hash = "#/drills";
+      return;
+    }
+
+    appState.ui.drillSteps[drillId] += 1;
+    renderRoute();
+  });
+}
+
+function renderProgress() {
+  const learned = appState.store.stats.phrasesLearned;
+  const total = appState.data.phrases.length;
+  const percent = total ? Math.round((learned / total) * 100) : 0;
+
+  const totalAttempts = appState.store.stats.totalCorrect + appState.store.stats.totalIncorrect;
+  const recallRate = totalAttempts ? Math.round((appState.store.stats.totalCorrect / totalAttempts) * 100) : 0;
+
+  const weekly = getWeeklyTracker();
+  const weeklyMinutes = weekly.reduce((sum, day) => sum + day.minutes, 0);
+  const categories = categoryStats();
+  const milestone = milestoneInfo(learned);
+
+  appEl.innerHTML = `
+    <section class="fade-in stack">
+      <header class="page-intro" style="margin-bottom: 6px;">
+        <p class="page-kicker">Your progress</p>
+        <h1 class="page-title" style="font-size: 28px;">Growing every day</h1>
+        <p class="page-subtitle">Consistency over perfection.</p>
+      </header>
+
+      <article class="hero-progress">
+        <span class="ghost">${learned}</span>
+        <div class="row-between" style="align-items: flex-end;">
+          <div>
+            <p class="metric-value" style="font-size: 58px; margin: 0;">${learned}</p>
+            <p class="metric-label" style="color: rgba(245,242,237,0.7);">phrases learned</p>
+          </div>
+          <div style="text-align:right;">
+            <p class="metric-value" style="font-size: 28px; color: var(--green-muted); margin: 0;">${total}</p>
+            <p class="metric-label" style="color: rgba(245,242,237,0.55);">starter total</p>
+          </div>
+        </div>
+        <div class="progress-track" style="margin-top: 14px; background: rgba(245,242,237,0.12);">
+          <div class="progress-fill" style="width: ${percent}%; background: linear-gradient(90deg, var(--green), var(--green-muted));"></div>
+        </div>
+      </article>
+
+      <div class="kpi-grid">
+        <article class="kpi-card"><p class="value">${appState.store.stats.currentStreak}</p><p class="label">Current streak</p></article>
+        <article class="kpi-card"><p class="value">${recallRate}%</p><p class="label">Recall rate</p></article>
+        <article class="kpi-card"><p class="value">${weeklyMinutes}m</p><p class="label">This week</p></article>
+      </div>
+
+      <section class="surface stack category-list">
+        <p class="page-kicker" style="margin:0;">By category</p>
+        ${categories
+          .map((cat) => {
+            const catPct = cat.starterCount ? Math.round((cat.learnedCount / cat.starterCount) * 100) : 0;
+            return `
+              <div class="category-row">
+                <div class="category-top">
+                  <div>
+                    <p class="category-title">${escapeHtml(cat.emoji)} ${escapeHtml(cat.label)}</p>
+                    <p class="category-meta">${cat.learnedCount}/${cat.starterCount || cat.totalTarget} learned</p>
+                  </div>
+                  <span class="mono" style="font-size:12px; color: var(--text-muted);">${catPct}%</span>
+                </div>
+                <div class="progress-track"><div class="progress-fill" style="width:${catPct}%;"></div></div>
+              </div>
+            `;
+          })
+          .join("")}
+      </section>
+
+      <article class="surface" style="background: var(--red-light); border-color: rgba(217,59,43,0.14); text-align:center;">
+        <p style="margin:0; font-size: 24px;">🇧🇩</p>
+        <p class="page-title" style="margin-top: 2px; font-size: 22px;">Next milestone: ${milestone.next} phrases</p>
+        <p class="page-subtitle" style="margin-top: 4px;">${milestone.remaining} to go · enough for stronger everyday small talk</p>
+      </article>
+
+      <section class="surface stack">
+        <p class="page-kicker" style="margin:0;">Backup</p>
+        <p class="page-subtitle" style="margin-top:0;">Export your progress JSON or import a previous backup.</p>
+        <div class="row-between">
+          <button id="exportBackupBtn" class="btn btn-soft" type="button">Export backup</button>
+          <label class="btn btn-ghost" for="importBackupInput" style="display:inline-flex; align-items:center; justify-content:center;">Import backup</label>
+          <input id="importBackupInput" type="file" accept="application/json" style="display:none;" />
+        </div>
+      </section>
+    </section>
+  `;
+
+  document.getElementById("exportBackupBtn")?.addEventListener("click", () => {
+    const payload = JSON.stringify(appState.store, null, 2);
+    const blob = new Blob([payload], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `bangla10-backup-${todayISO()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
+
+  document.getElementById("importBackupInput")?.addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      if (!parsed || typeof parsed !== "object" || !parsed.stats || !parsed.phrases) {
+        throw new Error("Invalid backup file");
+      }
+      appState.store = {
+        ...loadStore(),
+        ...parsed,
+        version: STORAGE_VERSION,
+        stats: {
+          ...loadStore().stats,
+          ...(parsed.stats || {})
+        },
+        settings: {
+          ...loadStore().settings,
+          ...(parsed.settings || {})
+        },
+        sessions: {
+          ...(parsed.sessions || {})
+        },
+        phrases: {
+          ...(parsed.phrases || {})
+        }
+      };
+      saveStore();
+      alert("Backup imported successfully.");
+      renderRoute();
+    } catch {
+      alert("Could not import this backup file.");
+    }
+  });
+}
+
+function renderRoute() {
+  const route = getRoute();
+  setActiveNav(route.page);
+
+  if (!appState.session || route.page !== "session") {
+    clearQuickfireTimer();
+  }
+
+  if (appState.session && route.page !== "session") {
+    pauseTimer(appState.session.timer);
+  }
+
+  if (route.page === "home") {
+    renderHome();
+    return;
+  }
+
+  if (route.page === "session") {
+    renderSession();
+    return;
+  }
+
+  if (route.page === "phrases") {
+    renderPhrases();
+    return;
+  }
+
+  if (route.page === "phrases-category") {
+    renderPhrasesCategory(route.categoryId);
+    return;
+  }
+
+  if (route.page === "drills") {
+    renderDrills();
+    return;
+  }
+
+  if (route.page === "drill-detail") {
+    renderDrillDetail(route.drillId);
+    return;
+  }
+
+  if (route.page === "progress") {
+    renderProgress();
+    return;
+  }
+
+  renderHome();
+}
+
+function updateClock() {
+  const now = new Date();
+  if (!clockEl) return;
+  clockEl.textContent = now.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+}
+
+async function loadData() {
+  const [phrases, drills, categories] = await Promise.all([
+    fetch("./data/phrases.json").then((r) => r.json()),
+    fetch("./data/drills.json").then((r) => r.json()),
+    fetch("./data/categories.json").then((r) => r.json())
+  ]);
+
+  appState.data = { phrases, drills, categories };
+}
+
+async function init() {
+  appState.store = loadStore();
+  updateClock();
+  setInterval(updateClock, 30000);
+
+  await loadData();
+
+  if (!window.location.hash) {
+    window.location.hash = "#/";
+  }
+
+  renderRoute();
+
+  window.addEventListener("hashchange", () => {
+    appState.ui.expandedPhraseId = null;
+    renderRoute();
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (!appState.session) return;
+    if (document.hidden) {
+      pauseTimer(appState.session.timer);
+    } else if (getRoute().page === "session") {
+      resumeTimer(appState.session.timer);
+    }
+  });
+}
+
+init().catch((error) => {
+  console.error("Failed to initialize app", error);
+  appEl.innerHTML = `<div class="empty">Could not load Bangla 10 data. Please refresh.</div>`;
+});
