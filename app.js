@@ -93,6 +93,15 @@ function shuffled(arr) {
   return clone;
 }
 
+function uniqueValues(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function buildOptionSet(correct, primaryValues, fallbackValues = []) {
+  const options = uniqueValues([...primaryValues, ...fallbackValues]).filter((value) => value !== correct);
+  return shuffled([correct, ...options.slice(0, 3)]);
+}
+
 function loadStore() {
   const fallback = {
     version: STORAGE_VERSION,
@@ -213,6 +222,43 @@ function buildSessionPlan({ extraPractice = false } = {}) {
   const allPhrases = appState.data.phrases;
 
   const knownPhrases = allPhrases.filter((phrase) => !!appState.store.phrases[phrase.id]);
+  const learnedPhrases = knownPhrases.filter((phrase) => (appState.store.phrases[phrase.id]?.timesCorrect || 0) > 0);
+
+  if (extraPractice) {
+    const dueLearned = learnedPhrases
+      .filter((phrase) => isDue(appState.store.phrases[phrase.id], today))
+      .sort((a, b) => {
+        const sa = appState.store.phrases[a.id];
+        const sb = appState.store.phrases[b.id];
+        if (sa.box !== sb.box) return sa.box - sb.box;
+        return (sa.lastReviewed || "") < (sb.lastReviewed || "") ? -1 : 1;
+      });
+
+    const selected = dueLearned.slice(0, maxReviews);
+    const usedIds = new Set(selected.map((phrase) => phrase.id));
+    const fillerPool = learnedPhrases
+      .filter((phrase) => !usedIds.has(phrase.id))
+      .sort((a, b) => {
+        const sa = appState.store.phrases[a.id];
+        const sb = appState.store.phrases[b.id];
+        return (sa.nextReview || "9999-12-31") < (sb.nextReview || "9999-12-31") ? -1 : 1;
+      });
+
+    const targetCount = Math.min(maxReviews, Math.max(minInteractions, selected.length));
+    while (selected.length < targetCount && fillerPool.length) {
+      selected.push(fillerPool.shift());
+    }
+
+    const items = selected.map((phrase) => ({ phraseId: phrase.id, type: "review" }));
+    return {
+      date: today,
+      items,
+      reviewCount: items.length,
+      newCount: 0,
+      estimatedMinutes: Math.max(8, Math.min(12, Math.round((items.length * 0.9 + 2) * 10) / 10))
+    };
+  }
+
   const dueReviews = knownPhrases
     .filter((phrase) => isDue(appState.store.phrases[phrase.id], today))
     .sort((a, b) => {
@@ -223,7 +269,6 @@ function buildSessionPlan({ extraPractice = false } = {}) {
     });
 
   const reviewSelection = dueReviews.slice(0, maxReviews);
-
   const newPool = allPhrases.filter((phrase) => !appState.store.phrases[phrase.id]);
   const targetInteractions = Math.min(maxInteractions, Math.max(minInteractions, reviewSelection.length + newPerSession));
   const newNeeded = Math.min(newPerSession, Math.max(0, targetInteractions - reviewSelection.length), newPool.length);
@@ -257,14 +302,6 @@ function buildSessionPlan({ extraPractice = false } = {}) {
   }
 
   const items = interleaved.slice(0, maxReviews);
-
-  if (extraPractice && items.length < minInteractions) {
-    const practicePool = shuffled(allPhrases).filter((phrase) => !items.some((item) => item.phraseId === phrase.id));
-    while (items.length < minInteractions && practicePool.length) {
-      const p = practicePool.shift();
-      items.push({ phraseId: p.id, type: appState.store.phrases[p.id] ? "review" : "new" });
-    }
-  }
 
   return {
     date: today,
@@ -303,16 +340,36 @@ function timerElapsedMs(timer) {
 }
 
 function startSession(extraPractice = false) {
+  clearQuickfireTimer();
   const plan = buildSessionPlan({ extraPractice });
-  if (!plan.items.length) return;
+  if (!plan.items.length) {
+    if (extraPractice) {
+      alert("No learned phrases yet for extra practice. Finish a daily round first.");
+    } else {
+      alert("No phrases available right now.");
+    }
+    window.location.hash = "#/";
+    return;
+  }
 
   for (const item of plan.items) {
     if (item.type === "new") ensurePhraseState(item.phraseId, false);
   }
   saveStore();
 
+  const sessionItems = plan.items.map((item) => {
+    const phraseState = appState.store.phrases[item.phraseId];
+    let direction = "en-to-bn";
+    if (extraPractice) {
+      direction = Math.random() < 0.5 ? "bn-to-en" : "en-to-bn";
+    } else if (item.type === "review" && (phraseState?.box || 1) >= 3 && Math.random() < 0.4) {
+      direction = "bn-to-en";
+    }
+    return { ...item, direction };
+  });
+
   const categoryFrequency = new Map();
-  for (const item of plan.items) {
+  for (const item of sessionItems) {
     const phrase = getPhraseById(item.phraseId);
     if (!phrase) continue;
     categoryFrequency.set(phrase.category, (categoryFrequency.get(phrase.category) || 0) + 1);
@@ -323,30 +380,70 @@ function startSession(extraPractice = false) {
   const fallbackDrill = appState.data.drills[0] || null;
   const selectedDrill = pick(matchingDrills.length ? matchingDrills : [fallbackDrill].filter(Boolean));
 
-  const questionIds = [...new Set(plan.items.map((item) => item.phraseId))];
-  const knownIds = Object.keys(appState.store.phrases);
-  const pool = [...questionIds, ...knownIds.filter((id) => !questionIds.includes(id))];
+  const learnedIds = Object.entries(appState.store.phrases)
+    .filter(([, state]) => (state?.timesCorrect || 0) > 0)
+    .map(([id]) => id);
+  const questionIds = [...new Set(sessionItems.map((item) => item.phraseId))];
+  let pool = extraPractice
+    ? [...learnedIds]
+    : [...questionIds, ...learnedIds.filter((id) => !questionIds.includes(id))];
+  if (!pool.length) {
+    pool = [...questionIds];
+  }
+
+  const learnedPhrases = learnedIds.map((id) => getPhraseById(id)).filter(Boolean);
 
   const questions = [];
   for (const phraseId of shuffled(pool).slice(0, 8)) {
     const phrase = getPhraseById(phraseId);
     if (!phrase) continue;
-    const distractors = shuffled(
-      appState.data.phrases
+    const phraseState = appState.store.phrases[phrase.id];
+    const reverseChance = extraPractice ? 0.55 : (phraseState?.box || 1) >= 3 ? 0.35 : 0.15;
+    const isBanglaToEnglish = Math.random() < reverseChance;
+
+    if (isBanglaToEnglish) {
+      const primaryEnglish = (extraPractice ? learnedPhrases : appState.data.phrases)
         .filter((candidate) => candidate.id !== phrase.id)
-        .map((candidate) => candidate.phonetic)
-    ).slice(0, 3);
+        .map((candidate) => candidate.english);
+      const fallbackEnglish = appState.data.phrases
+        .filter((candidate) => candidate.id !== phrase.id)
+        .map((candidate) => candidate.english);
+      questions.push({
+        phraseId: phrase.id,
+        direction: "bn-to-en",
+        instruction: "Translate into English",
+        prompt: phrase.bangla,
+        promptSecondary: phrase.phonetic,
+        correct: phrase.english,
+        options: buildOptionSet(phrase.english, primaryEnglish, fallbackEnglish)
+      });
+      continue;
+    }
 
     questions.push({
       phraseId: phrase.id,
-      english: phrase.english,
+      direction: "en-to-bn",
+      instruction: "Translate into phonetic Bangla",
+      prompt: phrase.english,
+      promptSecondary: "",
       correct: phrase.phonetic,
-      options: shuffled([phrase.phonetic, ...distractors])
+      options: buildOptionSet(
+        phrase.phonetic,
+        (extraPractice ? learnedPhrases : appState.data.phrases)
+          .filter((candidate) => candidate.id !== phrase.id)
+          .map((candidate) => candidate.phonetic),
+        appState.data.phrases
+          .filter((candidate) => candidate.id !== phrase.id)
+          .map((candidate) => candidate.phonetic)
+      )
     });
   }
 
   appState.session = {
-    plan,
+    plan: {
+      ...plan,
+      items: sessionItems
+    },
     phase: "cards",
     cardIndex: 0,
     cardFlipped: false,
@@ -368,7 +465,11 @@ function startSession(extraPractice = false) {
     completeStats: null
   };
 
+  const wasOnSession = getRoute().page === "session";
   window.location.hash = "#/session";
+  if (wasOnSession) {
+    renderRoute();
+  }
 }
 
 function clearQuickfireTimer() {
@@ -757,6 +858,7 @@ function renderSessionCards() {
   }
 
   const item = appState.session.plan.items[appState.session.cardIndex];
+  const isBanglaToEnglish = item.direction === "bn-to-en";
   const progress = appState.session.plan.items.length
     ? Math.round(((appState.session.cardIndex + 1) / appState.session.plan.items.length) * 100)
     : 0;
@@ -776,18 +878,37 @@ function renderSessionCards() {
 
       <article class="card-shell ${appState.session.cardFlipped ? "is-flipped" : ""}" id="flashCard">
         <div>
-          <p class="card-category">${escapeHtml(item.type)} · ${escapeHtml(phrase.category)}</p>
+          <p class="card-category">${escapeHtml(item.type)} · ${escapeHtml(phrase.category)} · ${isBanglaToEnglish ? "Bangla → English" : "English → Bangla"}</p>
           ${
             appState.session.cardFlipped
               ? `
-                <p class="card-main" style="font-style: normal; font-size: 38px;">${escapeHtml(phrase.bangla)}</p>
-                <p class="card-phonetic">${escapeHtml(phrase.phonetic)}</p>
-                <p class="card-helper">${escapeHtml(phrase.english)}</p>
+                ${
+                  isBanglaToEnglish
+                    ? `
+                      <p class="card-main">${escapeHtml(phrase.english)}</p>
+                      <p class="card-helper">${escapeHtml(phrase.bangla)} · ${escapeHtml(phrase.phonetic)}</p>
+                    `
+                    : `
+                      <p class="card-main" style="font-style: normal; font-size: 38px;">${escapeHtml(phrase.bangla)}</p>
+                      <p class="card-phonetic">${escapeHtml(phrase.phonetic)}</p>
+                      <p class="card-helper">${escapeHtml(phrase.english)}</p>
+                    `
+                }
                 <button id="audioBtn" class="btn btn-ghost" style="margin-top: 12px; color: rgba(255,255,255,0.76); border-color: rgba(255,255,255,0.24);">Play audio</button>
               `
               : `
-                <p class="card-main">${escapeHtml(phrase.english)}</p>
-                <p class="card-helper">tap to reveal</p>
+                ${
+                  isBanglaToEnglish
+                    ? `
+                      <p class="card-main" style="font-style: normal; font-size: 38px;">${escapeHtml(phrase.bangla)}</p>
+                      <p class="card-phonetic">${escapeHtml(phrase.phonetic)}</p>
+                      <p class="card-helper">say the English meaning, then tap to reveal</p>
+                    `
+                    : `
+                      <p class="card-main">${escapeHtml(phrase.english)}</p>
+                      <p class="card-helper">say it in Bangla, then tap to reveal</p>
+                    `
+                }
               `
           }
         </div>
@@ -951,8 +1072,13 @@ function renderSessionQuickfire() {
           <div class="timer-fill" id="quickfireFill" style="width: ${(quick.remaining / MAX_QUICKFIRE_TIME) * 100}%;"></div>
         </div>
 
-        <p class="page-kicker" style="margin-bottom: 0;">Translate into phonetic Bangla</p>
-        <p class="card-main" style="font-size: 27px;">${escapeHtml(question.english)}</p>
+        <p class="page-kicker" style="margin-bottom: 0;">${escapeHtml(question.instruction || "Translate")}</p>
+        <p class="card-main" style="font-size: 27px;">${escapeHtml(question.prompt)}</p>
+        ${
+          question.promptSecondary
+            ? `<p class="page-subtitle" style="margin-top: 2px;">${escapeHtml(question.promptSecondary)}</p>`
+            : ""
+        }
 
         <div class="options-grid">
           ${question.options
