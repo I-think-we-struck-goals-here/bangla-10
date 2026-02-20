@@ -3,6 +3,8 @@ const STORAGE_VERSION = 1;
 const INTERVAL_DAYS = { 1: 1, 2: 2, 3: 5, 4: 14, 5: 30 };
 const MAX_QUICKFIRE_TIME = 8;
 const PRAYER_CHUNK_STATUSES = ["new", "practicing", "memorised"];
+const SERVER_SYNC_ENDPOINT = "/api/progress";
+const SERVER_SYNC_DEBOUNCE_MS = 700;
 
 const appEl = document.getElementById("app");
 const clockEl = document.getElementById("clockLabel");
@@ -18,6 +20,18 @@ const appState = {
   },
   store: null,
   session: null,
+  sync: {
+    enabled: true,
+    canWrite: false,
+    bootstrapped: false,
+    inFlight: false,
+    queued: false,
+    pendingWhileDisabled: false,
+    pendingTimerId: null,
+    revision: 0,
+    lastSyncedAt: null,
+    lastError: null
+  },
   ui: {
     expandedPhraseId: null,
     phraseSearch: "",
@@ -108,14 +122,24 @@ function uniqueValues(values) {
   return [...new Set(values.filter(Boolean))];
 }
 
+function nowISO() {
+  return new Date().toISOString();
+}
+
 function buildOptionSet(correct, primaryValues, fallbackValues = []) {
   const options = uniqueValues([...primaryValues, ...fallbackValues]).filter((value) => value !== correct);
   return shuffled([correct, ...options.slice(0, 3)]);
 }
 
-function loadStore() {
-  const fallback = {
+function createDefaultStore() {
+  return {
     version: STORAGE_VERSION,
+    meta: {
+      revision: 0,
+      lastModifiedAt: null,
+      lastSyncedAt: null,
+      dirty: false
+    },
     phrases: {},
     stats: {
       totalSessions: 0,
@@ -139,44 +163,275 @@ function loadStore() {
       totalPracticeSessions: 0
     }
   };
+}
+
+function normalizeStore(input = {}) {
+  const fallback = createDefaultStore();
+  const parsed = input && typeof input === "object" ? input : {};
+  const parsedPrayer = parsed.prayer && typeof parsed.prayer === "object" ? parsed.prayer : {};
+  const parsedMeta = parsed.meta && typeof parsed.meta === "object" ? parsed.meta : {};
+
+  return {
+    ...fallback,
+    ...parsed,
+    version: STORAGE_VERSION,
+    meta: {
+      ...fallback.meta,
+      ...parsedMeta,
+      revision: Number(parsedMeta.revision) || 0,
+      dirty: !!parsedMeta.dirty
+    },
+    stats: {
+      ...fallback.stats,
+      ...(parsed.stats || {})
+    },
+    sessions: {
+      ...(parsed.sessions || {})
+    },
+    settings: {
+      ...fallback.settings,
+      ...(parsed.settings || {})
+    },
+    phrases: {
+      ...(parsed.phrases || {})
+    },
+    prayer: {
+      ...fallback.prayer,
+      ...parsedPrayer,
+      recitations: {
+        ...((parsedPrayer && parsedPrayer.recitations) || {})
+      }
+    }
+  };
+}
+
+function loadStore() {
+  const fallback = createDefaultStore();
 
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return fallback;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return fallback;
-    return {
-      ...fallback,
-      ...parsed,
-      stats: {
-        ...fallback.stats,
-        ...(parsed.stats || {})
-      },
-      sessions: {
-        ...(parsed.sessions || {})
-      },
-      settings: {
-        ...fallback.settings,
-        ...(parsed.settings || {})
-      },
-      phrases: {
-        ...(parsed.phrases || {})
-      },
-      prayer: {
-        ...fallback.prayer,
-        ...(parsed.prayer || {}),
-        recitations: {
-          ...((parsed.prayer && parsed.prayer.recitations) || {})
-        }
-      }
-    };
+    return normalizeStore(parsed);
   } catch {
     return fallback;
   }
 }
 
-function saveStore() {
+function hasMeaningfulProgress(store) {
+  if (!store) return false;
+  if ((store.stats?.totalSessions || 0) > 0) return true;
+  if ((store.stats?.phrasesLearned || 0) > 0) return true;
+  if (Object.keys(store.phrases || {}).length > 0) return true;
+  if (Object.keys(store.sessions || {}).length > 0) return true;
+  if ((store.prayer?.totalPracticeSessions || 0) > 0) return true;
+  if (Object.keys((store.prayer && store.prayer.recitations) || {}).length > 0) return true;
+  return false;
+}
+
+function localStoreFreshness(store) {
+  const fromMeta = Date.parse(store?.meta?.lastModifiedAt || "");
+  if (Number.isFinite(fromMeta)) return fromMeta;
+  const fromSession = Date.parse(store?.stats?.lastSessionDate ? `${store.stats.lastSessionDate}T23:59:59.000Z` : "");
+  if (Number.isFinite(fromSession)) return fromSession;
+  return 0;
+}
+
+function writeStoreToLocal() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(appState.store));
+}
+
+function saveStore({ sync = true } = {}) {
+  if (!appState.store) return;
+  appState.store.meta = {
+    ...(appState.store.meta || {}),
+    revision: Number(appState.store.meta?.revision) || 0,
+    lastSyncedAt: appState.store.meta?.lastSyncedAt || null,
+    lastModifiedAt: nowISO(),
+    dirty: true
+  };
+  writeStoreToLocal();
+  if (sync) scheduleServerSync();
+}
+
+function scheduleServerSync({ immediate = false } = {}) {
+  if (!appState.sync.enabled) return;
+  if (!appState.sync.canWrite) {
+    appState.sync.pendingWhileDisabled = true;
+    return;
+  }
+
+  if (appState.sync.pendingTimerId) {
+    clearTimeout(appState.sync.pendingTimerId);
+    appState.sync.pendingTimerId = null;
+  }
+
+  if (immediate) {
+    void performServerSync();
+    return;
+  }
+
+  appState.sync.pendingTimerId = setTimeout(() => {
+    appState.sync.pendingTimerId = null;
+    void performServerSync();
+  }, SERVER_SYNC_DEBOUNCE_MS);
+}
+
+async function performServerSync() {
+  if (!appState.sync.enabled || !appState.sync.canWrite) return;
+  if (!appState.store?.meta?.dirty) return;
+
+  if (appState.sync.inFlight) {
+    appState.sync.queued = true;
+    return;
+  }
+
+  appState.sync.inFlight = true;
+  appState.sync.lastError = null;
+
+  const stateSnapshot = JSON.parse(JSON.stringify(appState.store));
+  const snapshotLastModified = stateSnapshot?.meta?.lastModifiedAt || null;
+
+  try {
+    const response = await fetch(SERVER_SYNC_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        state: stateSnapshot,
+        clientRevision: Number(appState.sync.revision) || 0
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Sync failed (${response.status})`);
+    }
+
+    const payload = await response.json();
+    if (!payload?.ok) {
+      throw new Error(payload?.error || "Sync failed");
+    }
+
+    const nextRevision = Number(payload.revision) || Number(appState.sync.revision) || 0;
+    const syncedAt = payload.updatedAt || nowISO();
+
+    appState.sync.revision = nextRevision;
+    appState.sync.lastSyncedAt = syncedAt;
+
+    const hasNewerLocalChanges =
+      (appState.store?.meta?.lastModifiedAt || null) !== snapshotLastModified;
+    const currentLastModified = appState.store?.meta?.lastModifiedAt || snapshotLastModified || syncedAt;
+
+    appState.store.meta = {
+      ...(appState.store.meta || {}),
+      revision: nextRevision,
+      lastModifiedAt: currentLastModified,
+      lastSyncedAt: syncedAt,
+      dirty: hasNewerLocalChanges
+    };
+
+    writeStoreToLocal();
+    if (hasNewerLocalChanges) {
+      scheduleServerSync({ immediate: true });
+    }
+  } catch (error) {
+    appState.sync.lastError = error instanceof Error ? error.message : "Sync failed";
+    if (appState.store?.meta) {
+      appState.store.meta.dirty = true;
+      writeStoreToLocal();
+    }
+  } finally {
+    appState.sync.inFlight = false;
+    if (appState.sync.queued) {
+      appState.sync.queued = false;
+      scheduleServerSync({ immediate: true });
+    }
+  }
+}
+
+async function bootstrapServerSync() {
+  if (!appState.sync.enabled) return;
+
+  try {
+    const response = await fetch(SERVER_SYNC_ENDPOINT, {
+      method: "GET",
+      cache: "no-store"
+    });
+
+    if (response.status === 404 || response.status === 503) {
+      appState.sync.enabled = false;
+      appState.sync.canWrite = false;
+      appState.sync.bootstrapped = true;
+      return;
+    }
+
+    if (!response.ok) {
+      throw new Error(`Bootstrap failed (${response.status})`);
+    }
+
+    const payload = await response.json();
+    if (!payload?.ok) {
+      throw new Error(payload?.error || "Bootstrap failed");
+    }
+
+    const remoteRevision = Number(payload.revision) || 0;
+    const remoteUpdatedAt = payload.updatedAt || null;
+    const remoteState = payload.state ? normalizeStore(payload.state) : null;
+
+    appState.sync.canWrite = true;
+    appState.sync.bootstrapped = true;
+    appState.sync.revision = remoteRevision;
+    appState.sync.lastSyncedAt = remoteUpdatedAt;
+
+    if (remoteState) {
+      const localFreshness = localStoreFreshness(appState.store);
+      const remoteFreshness =
+        Date.parse(remoteUpdatedAt || "") || localStoreFreshness(remoteState);
+      const localRevision = Number(appState.store?.meta?.revision) || 0;
+
+      const shouldUseRemote =
+        !appState.store?.meta?.dirty &&
+        (remoteFreshness > localFreshness ||
+          (remoteFreshness === localFreshness && remoteRevision > localRevision));
+
+      if (shouldUseRemote) {
+        appState.store = normalizeStore(remoteState);
+        appState.store.meta = {
+          ...(appState.store.meta || {}),
+          revision: remoteRevision,
+          lastModifiedAt: appState.store.meta?.lastModifiedAt || remoteUpdatedAt || nowISO(),
+          lastSyncedAt: remoteUpdatedAt || nowISO(),
+          dirty: false
+        };
+        writeStoreToLocal();
+        renderRoute();
+      } else {
+        appState.store.meta = {
+          ...(appState.store.meta || {}),
+          revision: Math.max(localRevision, remoteRevision),
+          lastSyncedAt: remoteUpdatedAt || appState.store.meta?.lastSyncedAt || null,
+          dirty: !!appState.store.meta?.dirty
+        };
+        writeStoreToLocal();
+        if (appState.store.meta.dirty) {
+          scheduleServerSync({ immediate: true });
+        }
+      }
+    } else if (hasMeaningfulProgress(appState.store)) {
+      scheduleServerSync({ immediate: true });
+    }
+
+    if (appState.sync.pendingWhileDisabled) {
+      appState.sync.pendingWhileDisabled = false;
+      scheduleServerSync({ immediate: true });
+    }
+  } catch (error) {
+    appState.sync.canWrite = true;
+    appState.sync.bootstrapped = true;
+    appState.sync.lastError = error instanceof Error ? error.message : "Bootstrap failed";
+  }
 }
 
 function getPhraseById(id) {
@@ -1689,16 +1944,24 @@ function renderProgress() {
       if (!parsed || typeof parsed !== "object" || !parsed.stats || !parsed.phrases) {
         throw new Error("Invalid backup file");
       }
+      const baseline = loadStore();
       appState.store = {
-        ...loadStore(),
+        ...baseline,
         ...parsed,
         version: STORAGE_VERSION,
+        meta: {
+          ...(baseline.meta || {}),
+          ...(parsed.meta || {}),
+          revision: Number(parsed.meta?.revision) || 0,
+          lastSyncedAt: parsed.meta?.lastSyncedAt || null,
+          dirty: false
+        },
         stats: {
-          ...loadStore().stats,
+          ...baseline.stats,
           ...(parsed.stats || {})
         },
         settings: {
-          ...loadStore().settings,
+          ...baseline.settings,
           ...(parsed.settings || {})
         },
         sessions: {
@@ -1708,7 +1971,7 @@ function renderProgress() {
           ...(parsed.phrases || {})
         },
         prayer: {
-          ...loadStore().prayer,
+          ...baseline.prayer,
           ...(parsed.prayer || {}),
           recitations: {
             ...((parsed.prayer && parsed.prayer.recitations) || {})
@@ -2634,6 +2897,8 @@ async function loadData() {
 
 async function init() {
   appState.store = loadStore();
+  appState.sync.revision = Number(appState.store?.meta?.revision) || 0;
+  appState.sync.lastSyncedAt = appState.store?.meta?.lastSyncedAt || null;
   updateClock();
   setInterval(updateClock, 30000);
 
@@ -2644,6 +2909,7 @@ async function init() {
   }
 
   renderRoute();
+  void bootstrapServerSync();
 
   window.addEventListener("hashchange", () => {
     appState.ui.expandedPhraseId = null;

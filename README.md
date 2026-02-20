@@ -22,7 +22,7 @@ Minimal, mobile-first Bangla language trainer focused on daily practical convers
 
 - Plain HTML, CSS, and JavaScript (no build step)
 - Data stored as JSON in `data/`
-- User progress stored in browser `localStorage`
+- User progress stored locally first (`localStorage`) and synced in background to server (`/api/progress`)
 
 ## Local run
 
@@ -41,6 +41,10 @@ Open `http://localhost:4173`.
 2. Framework preset: `Other`.
 3. Build command: leave empty.
 4. Output directory: leave empty (root).
-5. Deploy.
+5. Add environment variables:
+   - `KV_REST_API_URL`
+   - `KV_REST_API_TOKEN`
+   - Optional: `BANGLA10_PROGRESS_KEY` (defaults to `bangla10:progress:v1`)
+6. Deploy.
 
-No environment variables are required.
+The app runs local-only if KV is not configured, but for persistent streak/progress across browsers/devices, configure Vercel KV.
