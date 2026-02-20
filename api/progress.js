@@ -1,6 +1,8 @@
 const KV_URL = process.env.KV_REST_API_URL;
 const KV_TOKEN = process.env.KV_REST_API_TOKEN;
+const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
 const PROGRESS_KEY = process.env.BANGLA10_PROGRESS_KEY || "bangla10:progress:v1";
+const BLOB_PATH = process.env.BANGLA10_PROGRESS_BLOB_PATH || "bangla10/progress.json";
 const MAX_STATE_BYTES = 900_000;
 
 function sendJson(res, statusCode, payload) {
@@ -10,8 +12,10 @@ function sendJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload));
 }
 
-function isKvConfigured() {
-  return Boolean(KV_URL && KV_TOKEN);
+function resolveStorageMode() {
+  if (KV_URL && KV_TOKEN) return "kv";
+  if (BLOB_TOKEN) return "blob";
+  return null;
 }
 
 async function runRedisCommand(command) {
@@ -33,15 +37,72 @@ async function runRedisCommand(command) {
   return payload.result;
 }
 
-async function readEnvelope() {
-  const raw = await runRedisCommand(["GET", PROGRESS_KEY]);
-  if (!raw) return null;
+async function getBlobSdk() {
+  const mod = await import("@vercel/blob");
+  return mod;
+}
 
-  const parsed = JSON.parse(raw);
+function parseEnvelope(raw) {
+  if (!raw) return null;
+  const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
   if (!parsed || typeof parsed !== "object") return null;
   if (typeof parsed.revision !== "number") return null;
   if (!parsed.state || typeof parsed.state !== "object") return null;
   return parsed;
+}
+
+async function readEnvelopeFromKv() {
+  const raw = await runRedisCommand(["GET", PROGRESS_KEY]);
+  return parseEnvelope(raw);
+}
+
+async function writeEnvelopeToKv(envelope) {
+  await runRedisCommand(["SET", PROGRESS_KEY, JSON.stringify(envelope)]);
+}
+
+async function readEnvelopeFromBlob() {
+  const { list } = await getBlobSdk();
+  const { blobs } = await list({
+    prefix: BLOB_PATH,
+    limit: 5,
+    token: BLOB_TOKEN
+  });
+
+  const target = blobs.find((blob) => blob.pathname === BLOB_PATH);
+  if (!target) return null;
+
+  const response = await fetch(target.url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Blob read failed (${response.status})`);
+  }
+
+  const payload = await response.json();
+  return parseEnvelope(payload);
+}
+
+async function writeEnvelopeToBlob(envelope) {
+  const { put } = await getBlobSdk();
+  await put(BLOB_PATH, JSON.stringify(envelope), {
+    token: BLOB_TOKEN,
+    access: "public",
+    allowOverwrite: true,
+    addRandomSuffix: false,
+    contentType: "application/json; charset=utf-8",
+    cacheControlMaxAge: 0
+  });
+}
+
+async function readEnvelope(mode) {
+  if (mode === "kv") return readEnvelopeFromKv();
+  return readEnvelopeFromBlob();
+}
+
+async function writeEnvelope(mode, envelope) {
+  if (mode === "kv") {
+    await writeEnvelopeToKv(envelope);
+    return;
+  }
+  await writeEnvelopeToBlob(envelope);
 }
 
 function normalizeIncomingBody(body) {
@@ -76,21 +137,24 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  if (!isKvConfigured()) {
+  const storageMode = resolveStorageMode();
+  if (!storageMode) {
     sendJson(res, 503, {
       ok: false,
-      error: "KV not configured. Add KV_REST_API_URL and KV_REST_API_TOKEN."
+      error:
+        "No server storage configured. Set KV_REST_API_URL/KV_REST_API_TOKEN or BLOB_READ_WRITE_TOKEN."
     });
     return;
   }
 
   if (req.method === "GET") {
     try {
-      const envelope = await readEnvelope();
+      const envelope = await readEnvelope(storageMode);
       if (!envelope) {
         sendJson(res, 200, {
           ok: true,
           enabled: true,
+          backend: storageMode,
           revision: 0,
           updatedAt: null,
           state: null
@@ -101,6 +165,7 @@ module.exports = async function handler(req, res) {
       sendJson(res, 200, {
         ok: true,
         enabled: true,
+        backend: storageMode,
         revision: envelope.revision,
         updatedAt: envelope.updatedAt || null,
         state: envelope.state
@@ -119,7 +184,7 @@ module.exports = async function handler(req, res) {
       const body = normalizeIncomingBody(req.body);
       const nextState = sanitizeState(body.state);
 
-      const current = await readEnvelope();
+      const current = await readEnvelope(storageMode);
       const nextRevision = (current?.revision || 0) + 1;
       const updatedAt = new Date().toISOString();
 
@@ -136,10 +201,11 @@ module.exports = async function handler(req, res) {
         state: nextState
       };
 
-      await runRedisCommand(["SET", PROGRESS_KEY, JSON.stringify(envelope)]);
+      await writeEnvelope(storageMode, envelope);
 
       sendJson(res, 200, {
         ok: true,
+        backend: storageMode,
         revision: nextRevision,
         updatedAt
       });

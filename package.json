@@ -1,0 +1,9 @@
+{
+  "name": "bangla-10",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bangla 10 static app with serverless progress sync",
+  "dependencies": {
+    "@vercel/blob": "^2.2.0"
+  }
+}

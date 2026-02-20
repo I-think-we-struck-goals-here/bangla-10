@@ -41,10 +41,12 @@ Open `http://localhost:4173`.
 2. Framework preset: `Other`.
 3. Build command: leave empty.
 4. Output directory: leave empty (root).
-5. Add environment variables:
-   - `KV_REST_API_URL`
-   - `KV_REST_API_TOKEN`
-   - Optional: `BANGLA10_PROGRESS_KEY` (defaults to `bangla10:progress:v1`)
-6. Deploy.
+5. Add server storage environment variables (either option works):
+   - Option A (recommended): `KV_REST_API_URL` + `KV_REST_API_TOKEN`
+   - Option B: `BLOB_READ_WRITE_TOKEN`
+6. Optional:
+   - `BANGLA10_PROGRESS_KEY` (defaults to `bangla10:progress:v1`)
+   - `BANGLA10_PROGRESS_BLOB_PATH` (defaults to `bangla10/progress.json`)
+7. Deploy.
 
-The app runs local-only if KV is not configured, but for persistent streak/progress across browsers/devices, configure Vercel KV.
+The app runs local-only if no server storage is configured. For persistent streak/progress across browsers/devices, configure KV or Blob.
